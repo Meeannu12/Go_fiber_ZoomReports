@@ -1,13 +1,29 @@
 package main
 
 import (
+	"fmt"
 	"go_fiber_Zoom_Report/config"
 	"go_fiber_Zoom_Report/routes"
+	"log"
+	"os"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/joho/godotenv"
 )
 
 func main() {
+
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
+
+	// Get port from .env
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "3000" // fallback default
+	}
+	fmt.Println("new port", port)
 	// Create a new Fiber app
 
 	// config.ConnectMongoDB()
@@ -80,5 +96,5 @@ func main() {
 		})
 	})
 
-	app.Listen(":8080")
+	app.Listen(":" + port)
 }
