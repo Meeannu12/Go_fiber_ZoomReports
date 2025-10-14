@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"go_fiber_Zoom_Report/config"
 	"go_fiber_Zoom_Report/routes"
 	"log"
