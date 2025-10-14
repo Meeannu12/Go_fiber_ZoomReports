@@ -23,7 +23,7 @@ func main() {
 	if port == "" {
 		port = "3000" // fallback default
 	}
-	fmt.Println("new port", port)
+	// fmt.Println("new port", port)
 	// Create a new Fiber app
 
 	// config.ConnectMongoDB()
