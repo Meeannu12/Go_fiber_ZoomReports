@@ -45,6 +45,7 @@ type ReportBlock struct {
 type AdvisingController struct{}
 type crmLeadsController struct{}
 type ClientLeadsController struct{}
+type DialerLeadsController struct{}
 
 func GetCombineReport(c *fiber.Ctx) error {
 	fromDateStr := c.Query("fromDate")
@@ -107,10 +108,11 @@ func GetCombineReport(c *fiber.Ctx) error {
 			advisingNumbers []string
 			crmNumbers      []string
 			zoomNumbers     []string
+			dialerNumbers   []string
 		)
 
 		wg := sync.WaitGroup{}
-		wg.Add(3)
+		wg.Add(4)
 
 		go func() {
 			defer wg.Done()
@@ -125,10 +127,20 @@ func GetCombineReport(c *fiber.Ctx) error {
 			zoomNumbers, _ = (&ClientLeadsController{}).GetClientLeadsNumbersByEmployeeID(empID)
 		}()
 
+		go func() {
+			defer wg.Done()
+			dialerNumbers, _ = (&DialerLeadsController{}).GetDialerLeadsNumbersByEmployeeID(empID)
+		}()
+
 		wg.Wait()
 
+		// Combine both slices
+		allNumbers := append(zoomNumbers, dialerNumbers...)
+		// Optional: remove duplicates
+		allNumbers = removeDuplicates(allNumbers)
+
 		// ✅ Calculate each report section
-		dilerReport := getCallReport(callLogsCollection, empID, zoomNumbers, startOfDay, endOfDay)
+		dilerReport := getCallReport(callLogsCollection, empID, allNumbers, startOfDay, endOfDay)
 		crmReport := getCallReport(callLogsCollection, empID, crmNumbers, startOfDay, endOfDay)
 		advisorReport := getCallReport(callLogsCollection, empID, advisingNumbers, startOfDay, endOfDay)
 
@@ -349,6 +361,61 @@ func (c *ClientLeadsController) GetClientLeadsNumbersByEmployeeID(employeeID str
 
 	allNumbers = removeDuplicates(allNumbers)
 	return allNumbers, nil
+}
+
+func (c *DialerLeadsController) GetDialerLeadsNumbersByEmployeeID(employeeID string) ([]string, error) {
+	dialerCollection := config.GetCollection("ZoomDB", "dialerleads")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Find all documents for this employee
+	cursor, err := dialerCollection.Find(ctx, bson.M{"employeeid": employeeID})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	// fmt.Println(cursor)
+
+	var results []bson.M
+	if err := cursor.All(ctx, &results); err != nil {
+		return nil, err
+	}
+
+	// fmt.Println(results)
+
+	// Loop through results and get mobile numbers
+	// var mobileNumbers []string
+	// for _, doc := range results {
+	// 	if val, ok := doc["mobile"]; ok {
+	// 		switch v := val.(type) {
+	// 		case int:
+	// 			mobileNumbers = append(mobileNumbers, fmt.Sprintf("%d", v))
+	// 		case int32:
+	// 			mobileNumbers = append(mobileNumbers, fmt.Sprintf("%d", v))
+	// 		case int64:
+	// 			mobileNumbers = append(mobileNumbers, fmt.Sprintf("%d", v))
+	// 		case float64:
+	// 			mobileNumbers = append(mobileNumbers, fmt.Sprintf("%.0f", v))
+	// 		case string:
+	// 			mobileNumbers = append(mobileNumbers, v)
+	// 		}
+	// 	}
+	// }
+
+	// Extract all mobile numbers
+	var mobileNumbers []string
+	for _, doc := range results {
+		if val, ok := doc["mobile"]; ok {
+			mobileNumbers = append(mobileNumbers, fmt.Sprintf("%v", val))
+		}
+	}
+
+	// Optional: remove duplicates
+	mobileNumbers = removeDuplicates(mobileNumbers)
+
+	return mobileNumbers, nil
 }
 
 func removeDuplicates(arr []string) []string {
