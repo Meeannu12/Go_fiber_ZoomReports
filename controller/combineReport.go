@@ -362,7 +362,7 @@ func getDailyCallReport(callLogsCollection *mongo.Collection, employeeID string,
 	addFieldsStage := bson.D{{Key: "$addFields", Value: bson.M{
 		"dateStr": bson.M{
 			"$dateToString": bson.M{
-				"format": "%d-%m",
+				"format": "%d-%m-%Y",
 				"date":   "$timestamp",
 			},
 		},
@@ -419,7 +419,7 @@ func getDailyAvyuktaCallSummary(collection *mongo.Collection, fullName string, s
 	addFieldsStage := bson.D{{Key: "$addFields", Value: bson.M{
 		"dateStr": bson.M{
 			"$dateToString": bson.M{
-				"format": "%d-%m",
+				"format": "%d-%m-%Y",
 				"date":   "$call_date",
 			},
 		},
