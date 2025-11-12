@@ -27,10 +27,26 @@ type StaffReport struct {
 	Name          string      `json:"name"`
 	Branch        string      `json:"branch"`
 	EmployeeID    string      `json:"employeeId"`
-	Profile       string      `json:"profile`
+	Profile       string      `json:"profile"`
 	DilerReport   ReportBlock `json:"dilerReport"`
 	CRMReport     ReportBlock `json:"crmReport"`
 	AdvisorReport ReportBlock `json:"advisorReport"`
+}
+
+type StaffDailyReport struct {
+	Name          string           `json:"name"`
+	Branch        string           `json:"branch"`
+	EmployeeID    string           `json:"employeeId"`
+	Profile       string           `json:"profile"`
+	DilerReport   []EveryDayReport `json:"dilerReport"`
+	CRMReport     []EveryDayReport `json:"crmReport"`
+	AdvisorReport []EveryDayReport `json:"advisorReport"`
+	AvyuktaReport []EveryDayReport `json:"avyuktaReport"`
+}
+
+type EveryDayReport struct {
+	Date      string `bson:"_id" json:"date"`
+	TotalTime int    `bson:"totalTime" json:"totalTime"`
 }
 
 type ReportBlock struct {
@@ -158,6 +174,110 @@ func GetCombineReport(c *fiber.Ctx) error {
 	return c.JSON(finalReport)
 }
 
+func DayByReportEveryStaff(c *fiber.Ctx) error {
+	fromDateStr := c.Query("fromDate")
+	toDateStr := c.Query("toDate")
+
+	startOfDay, endOfDay, err := utils.ParseDateRange(fromDateStr, toDateStr)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Invalid date format. Use YYYY-MM-DD"})
+	}
+
+	fmt.Println("🕐 Start:", startOfDay)
+	fmt.Println("🕐 End:", endOfDay)
+
+	staffCollection := config.GetCollection("ZoomDB", "staffs")
+	callLogsCollection := config.GetCollection("ZoomDB", "calllogs")
+	avyuktaCallLogs := config.GetCollection("ZoomDB", "avyuktacalls")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Step 1: Create find options
+	findOptions := options.Find().SetProjection(bson.M{
+		"employeeId": 1,
+		"name":       1,
+		"branch":     1,
+		"profile":    1,
+	})
+
+	cursor, err := staffCollection.Find(ctx, bson.M{}, findOptions)
+
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Failed to fetch staff"})
+	}
+
+	var staffList []models.Staff
+	if err := cursor.All(ctx, &staffList); err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Failed to decode staff"})
+	}
+
+	var finalReport []StaffDailyReport
+
+	// Example Loop
+	// Step 3: Loop through each employee
+	for _, s := range staffList {
+		empID := s.EmployeeID // <-- use struct field
+		name := s.Name
+		branch := s.Branch
+		profile := s.Profile
+
+		var (
+			advisingNumbers []string
+			crmNumbers      []string
+			zoomNumbers     []string
+			dialerNumbers   []string
+		)
+
+		wg := sync.WaitGroup{}
+		wg.Add(4)
+
+		go func() {
+			defer wg.Done()
+			advisingNumbers, _ = (&AdvisingController{}).GetAdvisingNumbersByEmployeeID(empID)
+		}()
+		go func() {
+			defer wg.Done()
+			crmNumbers, _ = (&crmLeadsController{}).GetCRMLeadsNumbersByEmployeeID(empID)
+		}()
+		go func() {
+			defer wg.Done()
+			zoomNumbers, _ = (&ClientLeadsController{}).GetClientLeadsNumbersByEmployeeID(empID)
+		}()
+
+		go func() {
+			defer wg.Done()
+			dialerNumbers, _ = (&DialerLeadsController{}).GetDialerLeadsNumbersByEmployeeID(empID)
+		}()
+
+		wg.Wait()
+
+		// Combine both slices
+		allNumbers := append(zoomNumbers, dialerNumbers...)
+		// Optional: remove duplicates
+		allNumbers = removeDuplicates(allNumbers)
+
+		// ✅ Calculate each report section
+		dilerReport, _ := getDailyCallReport(callLogsCollection, empID, allNumbers, startOfDay, endOfDay)
+		crmReport, _ := getDailyCallReport(callLogsCollection, empID, crmNumbers, startOfDay, endOfDay)
+		advisorReport, _ := getDailyCallReport(callLogsCollection, empID, advisingNumbers, startOfDay, endOfDay)
+		avyuktaReport, _ := getDailyAvyuktaCallSummary(avyuktaCallLogs, name, startOfDay, endOfDay)
+
+		finalReport = append(finalReport, StaffDailyReport{
+			Name:          name,
+			Branch:        branch,
+			EmployeeID:    empID,
+			Profile:       profile,
+			DilerReport:   dilerReport,
+			CRMReport:     crmReport,
+			AdvisorReport: advisorReport,
+			AvyuktaReport: avyuktaReport,
+		})
+	}
+
+	return c.JSON(finalReport)
+}
+
 func getCallReport(callLogsCollection *mongo.Collection, employeeID string, numbers []string, start, end time.Time) ReportBlock {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -225,6 +345,115 @@ func getCallReport(callLogsCollection *mongo.Collection, employeeID string, numb
 		FirstCallObject:      firstCall,
 		LastCallObject:       lastCall,
 	}
+}
+
+func getDailyCallReport(callLogsCollection *mongo.Collection, employeeID string, numbers []string, start, end time.Time) ([]EveryDayReport, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Match filter
+	matchStage := bson.D{{Key: "$match", Value: bson.M{
+		"employeeId":  employeeID,
+		"timestamp":   bson.M{"$gte": start, "$lte": end},
+		"phoneNumber": bson.M{"$in": numbers},
+	}}}
+
+	// Convert timestamp to date string (DD-MM format)
+	addFieldsStage := bson.D{{Key: "$addFields", Value: bson.M{
+		"dateStr": bson.M{
+			"$dateToString": bson.M{
+				"format": "%d-%m",
+				"date":   "$timestamp",
+			},
+		},
+	}}}
+
+	// Group by that formatted date
+	groupStage := bson.D{{
+		Key: "$group",
+		Value: bson.M{
+			"_id": "$dateStr",
+			"totalTime": bson.M{
+				"$sum": bson.M{
+					"$toInt": "$duration",
+				},
+			},
+		},
+	}}
+
+	// Sort by date
+	sortStage := bson.D{{Key: "$sort", Value: bson.M{"_id": 1}}}
+
+	pipeline := mongo.Pipeline{matchStage, addFieldsStage, groupStage, sortStage}
+
+	cursor, err := callLogsCollection.Aggregate(ctx, pipeline)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var results []EveryDayReport
+	if err := cursor.All(ctx, &results); err != nil {
+		return nil, err
+	}
+
+	// Rename _id → Date (if needed)
+	for i := range results {
+		results[i].Date = results[i].Date // already mapped via bson tag
+	}
+
+	return results, nil
+}
+
+func getDailyAvyuktaCallSummary(collection *mongo.Collection, fullName string, start, end time.Time) ([]EveryDayReport, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Stage 1: Filter between startDate and endDate
+	matchStage := bson.D{{Key: "$match", Value: bson.M{
+		"full_name": fullName,
+		"call_date": bson.M{"$gte": start, "$lte": end},
+	}}}
+
+	// Step 2: Convert call_date to a formatted string (like "30-10")
+	addFieldsStage := bson.D{{Key: "$addFields", Value: bson.M{
+		"dateStr": bson.M{
+			"$dateToString": bson.M{
+				"format": "%d-%m",
+				"date":   "$call_date",
+			},
+		},
+	}}}
+
+	// Step 3: Group by date (DD-MM) and sum total time
+	groupStage := bson.D{{Key: "$group", Value: bson.M{
+		"_id":       "$dateStr",
+		"totalTime": bson.M{"$sum": "$lenth_in_sec"},
+	}}}
+
+	// Step 4: Sort by date ascending
+	sortStage := bson.D{{Key: "$sort", Value: bson.M{"_id": 1}}}
+
+	pipeline := mongo.Pipeline{matchStage, addFieldsStage, groupStage, sortStage}
+
+	cursor, err := collection.Aggregate(ctx, pipeline)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var results []EveryDayReport
+	if err := cursor.All(ctx, &results); err != nil {
+		return nil, err
+	}
+
+	// Rename _id to date for clean output
+	// for i := range results {
+	// 	results[i]["date"] = results[i]["_id"]
+	// 	delete(results[i], "_id")
+	// }
+
+	return results, nil
 }
 
 // GetAdvisingNumbersByEmployeeID returns all phone numbers for a given employeeid

@@ -8,4 +8,5 @@ import (
 
 func ReportRoutes(app *fiber.App) {
 	app.Get("/report", controller.GetCombineReport)
+	app.Get("/DailyReport", controller.DayByReportEveryStaff)
 }
