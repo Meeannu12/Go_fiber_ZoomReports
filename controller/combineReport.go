@@ -28,6 +28,7 @@ type StaffReport struct {
 	Branch        string      `json:"branch"`
 	EmployeeID    string      `json:"employeeId"`
 	Profile       string      `json:"profile"`
+	Attendee      int      `json:"attendee"`
 	DilerReport   ReportBlock `json:"dilerReport"`
 	CRMReport     ReportBlock `json:"crmReport"`
 	AdvisorReport ReportBlock `json:"advisorReport"`
@@ -63,6 +64,7 @@ type AdvisingController struct{}
 type crmLeadsController struct{}
 type ClientLeadsController struct{}
 type DialerLeadsController struct{}
+type Attendees struct{}
 
 func GetCombineReport(c *fiber.Ctx) error {
 	fromDateStr := c.Query("fromDate")
@@ -140,6 +142,11 @@ func GetCombineReport(c *fiber.Ctx) error {
 			dialerNumbers, _ = (&DialerLeadsController{}).GetDialerLeadsNumbersByEmployeeID(empID)
 		}()
 
+		// go func(){
+		// 	defer wg.Done()
+		// 	attendee,_ =(&Attendees{}).getAllAttendeeCount(name, startOfDay, endOfDay)
+		// }()
+
 		wg.Wait()
 
 		// Combine both slices
@@ -152,12 +159,14 @@ func GetCombineReport(c *fiber.Ctx) error {
 		crmReport := getCallReport(callLogsCollection, empID, crmNumbers, startOfDay, endOfDay)
 		advisorReport := getCallReport(callLogsCollection, empID, advisingNumbers, startOfDay, endOfDay)
 		avyuktaReport := getAvyuktaCallReport(avyuktaCallCallection, name, startOfDay, endOfDay)
+		attendee := getAllAttendeeCount(name, startOfDay, endOfDay)
 
 		finalReport = append(finalReport, StaffReport{
 			Name:          name,
 			Branch:        branch,
 			EmployeeID:    empID,
 			Profile:       profile,
+			Attendee:      attendee,
 			DilerReport:   dilerReport,
 			CRMReport:     crmReport,
 			AdvisorReport: advisorReport,
@@ -574,6 +583,47 @@ func getDailyAvyuktaCallSummary(collection *mongo.Collection, fullName string, s
 	return fullResults, nil
 }
 
+func getAllAttendeeCount(name string, start, end time.Time) int {
+	collection := config.GetCollection("ZoomDB", "attendees") // change this to your actual collection name
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	filter := bson.M{
+		"Team": name,
+		"Date": bson.M{
+			"$gte": start,
+			"$lte": end,
+		},
+	}
+
+	cursor, err := collection.Find(ctx, filter)
+	if err != nil {
+		fmt.Println("Error fetching data:", err)
+		return 0
+	}
+	defer cursor.Close(ctx)
+
+	var results []bson.M
+	if err := cursor.All(ctx, &results); err != nil {
+		fmt.Println("Error decoding data:", err)
+		return 0
+	}
+
+	total := 0
+	for _, doc := range results {
+		if val, ok := doc["Attendees"].(int32); ok {
+			total += int(val)
+		} else if val, ok := doc["Attendees"].(int64); ok {
+			total += int(val)
+		} else if val, ok := doc["Attendees"].(float64); ok {
+			total += int(val)
+		}
+	}
+
+	return total
+}
+
 // GetAdvisingNumbersByEmployeeID returns all phone numbers for a given employeeid
 func (c *AdvisingController) GetAdvisingNumbersByEmployeeID(employeeID string) ([]string, error) {
 	advisingCollection := config.GetCollection("ZoomDB", "advisingleads")
@@ -730,27 +780,6 @@ func (c *DialerLeadsController) GetDialerLeadsNumbersByEmployeeID(employeeID str
 		return nil, err
 	}
 
-	// fmt.Println(results)
-
-	// Loop through results and get mobile numbers
-	// var mobileNumbers []string
-	// for _, doc := range results {
-	// 	if val, ok := doc["mobile"]; ok {
-	// 		switch v := val.(type) {
-	// 		case int:
-	// 			mobileNumbers = append(mobileNumbers, fmt.Sprintf("%d", v))
-	// 		case int32:
-	// 			mobileNumbers = append(mobileNumbers, fmt.Sprintf("%d", v))
-	// 		case int64:
-	// 			mobileNumbers = append(mobileNumbers, fmt.Sprintf("%d", v))
-	// 		case float64:
-	// 			mobileNumbers = append(mobileNumbers, fmt.Sprintf("%.0f", v))
-	// 		case string:
-	// 			mobileNumbers = append(mobileNumbers, v)
-	// 		}
-	// 	}
-	// }
-
 	// Extract all mobile numbers
 	var mobileNumbers []string
 	for _, doc := range results {
@@ -776,3 +805,58 @@ func removeDuplicates(arr []string) []string {
 	}
 	return list
 }
+
+// func (c *Attendees) GetAllAttendeeCount(teamName string, startDate, endDate time.Time) int {
+// 	collection := config.GetCollection("ZoomDB", "attendees")
+
+// 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+// 	defer cancel()
+
+// 	// Build filter
+// 	filter := bson.M{
+// 		"Team": teamName,
+// 		"Date": bson.M{
+// 			"$gte": startDate,
+// 			"$lte": endDate,
+// 		},
+// 	}
+
+// 	// Define aggregation pipeline: match + sum attendees
+// 	pipeline := mongo.Pipeline{
+// 		{{Key: "$match", Value: filter}},
+// 		{{Key: "$group", Value: bson.M{
+// 			"_id":        nil,
+// 			"totalCount": bson.M{"$sum": "$Attendees"},
+// 		}}},
+// 	}
+
+// 	cursor, err := collection.Aggregate(ctx, pipeline)
+// 	if err != nil {
+// 		return 0, err
+// 	}
+// 	defer cursor.Close(ctx)
+
+// 	var result []bson.M
+// 	if err := cursor.All(ctx, &result); err != nil {
+// 		return 0, err
+// 	}
+
+// 	if len(result) == 0 {
+// 		return 0, nil // no records found
+// 	}
+
+// 	// Extract totalCount safely
+// 	total, ok := result[0]["totalCount"].(int32)
+// 	if !ok {
+// 		switch v := result[0]["totalCount"].(type) {
+// 		case int64:
+// 			return int(v), nil
+// 		case float64:
+// 			return int(v), nil
+// 		default:
+// 			return 0, nil
+// 		}
+// 	}
+
+// 	return int(total), nil
+// }
