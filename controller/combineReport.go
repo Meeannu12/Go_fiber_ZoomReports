@@ -392,17 +392,41 @@ func getDailyCallReport(callLogsCollection *mongo.Collection, employeeID string,
 	}
 	defer cursor.Close(ctx)
 
-	var results []EveryDayReport
-	if err := cursor.All(ctx, &results); err != nil {
+	// var results []EveryDayReport
+	// if err := cursor.All(ctx, &results); err != nil {
+	// 	return nil, err
+	// }
+
+	// // Rename _id → Date (if needed)
+	// for i := range results {
+	// 	results[i].Date = results[i].Date // already mapped via bson tag
+	// }
+
+	// return results, nil
+
+	var aggResults []EveryDayReport
+	if err := cursor.All(ctx, &aggResults); err != nil {
 		return nil, err
 	}
 
-	// Rename _id → Date (if needed)
-	for i := range results {
-		results[i].Date = results[i].Date // already mapped via bson tag
+	// Convert aggregation results into a map (for quick lookup)
+	resultMap := make(map[string]int)
+	for _, r := range aggResults {
+		resultMap[r.Date] = r.TotalTime
 	}
 
-	return results, nil
+	// Fill missing days with totalTime = 0
+	var finalResults []EveryDayReport
+	for d := start; !d.After(end); d = d.Add(24 * time.Hour) {
+		dateStr := d.Format("02-01-2006") // same format as $dateToString
+		totalTime := resultMap[dateStr]
+		finalResults = append(finalResults, EveryDayReport{
+			Date:      dateStr,
+			TotalTime: totalTime,
+		})
+	}
+
+	return finalResults, nil
 }
 
 func getDailyAvyuktaCallSummary(collection *mongo.Collection, fullName string, start, end time.Time) ([]EveryDayReport, error) {
@@ -442,10 +466,10 @@ func getDailyAvyuktaCallSummary(collection *mongo.Collection, fullName string, s
 	}
 	defer cursor.Close(ctx)
 
-	var results []EveryDayReport
-	if err := cursor.All(ctx, &results); err != nil {
-		return nil, err
-	}
+	// var results []EveryDayReport
+	// if err := cursor.All(ctx, &results); err != nil {
+	// 	return nil, err
+	// }
 
 	// Rename _id to date for clean output
 	// for i := range results {
@@ -453,7 +477,31 @@ func getDailyAvyuktaCallSummary(collection *mongo.Collection, fullName string, s
 	// 	delete(results[i], "_id")
 	// }
 
-	return results, nil
+	// return results, nil
+
+	var aggResults []EveryDayReport
+	if err := cursor.All(ctx, &aggResults); err != nil {
+		return nil, err
+	}
+
+	// Convert aggregation results into a map for quick lookup
+	resultMap := make(map[string]int)
+	for _, r := range aggResults {
+		resultMap[r.Date] = r.TotalTime
+	}
+
+	// Generate all dates between start and end
+	var fullResults []EveryDayReport
+	for d := start; !d.After(end); d = d.Add(24 * time.Hour) {
+		dateStr := d.Format("02-01-2006") // same format used in $dateToString
+		totalTime := resultMap[dateStr]
+		fullResults = append(fullResults, EveryDayReport{
+			Date:      dateStr,
+			TotalTime: totalTime,
+		})
+	}
+
+	return fullResults, nil
 }
 
 // GetAdvisingNumbersByEmployeeID returns all phone numbers for a given employeeid
