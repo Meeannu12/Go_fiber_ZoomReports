@@ -31,6 +31,7 @@ type StaffReport struct {
 	DilerReport   ReportBlock `json:"dilerReport"`
 	CRMReport     ReportBlock `json:"crmReport"`
 	AdvisorReport ReportBlock `json:"advisorReport"`
+	AvyuktaReport ReportBlock `json:"avyuktaReport"`
 }
 
 type StaffDailyReport struct {
@@ -77,6 +78,7 @@ func GetCombineReport(c *fiber.Ctx) error {
 
 	staffCollection := config.GetCollection("ZoomDB", "staffs")
 	callLogsCollection := config.GetCollection("ZoomDB", "calllogs")
+	avyuktaCallCallection := config.GetCollection("ZoomDB", "avyuktacalls")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -109,16 +111,6 @@ func GetCombineReport(c *fiber.Ctx) error {
 		name := s.Name
 		branch := s.Branch
 		profile := s.Profile
-
-		// ✅ Fetch all number lists (already implemented functions)
-		// advisingController := &AdvisingController{}
-		// advisingNumbers, _ := advisingController.GetAdvisingNumbersByEmployeeID(empID)
-
-		// crmController := &crmLeadsController{}
-		// crmNumbers, _ := crmController.GetCRMLeadsNumbersByEmployeeID(empID)
-
-		// zoomController := &ClientLeadsController{}
-		// zoomNumbers, _ := zoomController.GetClientLeadsNumbersByEmployeeID(empID)
 
 		var (
 			advisingNumbers []string
@@ -159,6 +151,7 @@ func GetCombineReport(c *fiber.Ctx) error {
 		dilerReport := getCallReport(callLogsCollection, empID, allNumbers, startOfDay, endOfDay)
 		crmReport := getCallReport(callLogsCollection, empID, crmNumbers, startOfDay, endOfDay)
 		advisorReport := getCallReport(callLogsCollection, empID, advisingNumbers, startOfDay, endOfDay)
+		avyuktaReport := getAvyuktaCallReport(avyuktaCallCallection, name, startOfDay, endOfDay)
 
 		finalReport = append(finalReport, StaffReport{
 			Name:          name,
@@ -168,6 +161,7 @@ func GetCombineReport(c *fiber.Ctx) error {
 			DilerReport:   dilerReport,
 			CRMReport:     crmReport,
 			AdvisorReport: advisorReport,
+			AvyuktaReport: avyuktaReport,
 		})
 	}
 
@@ -276,6 +270,82 @@ func DayByReportEveryStaff(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(finalReport)
+}
+
+func getAvyuktaCallReport(callLogsCollection *mongo.Collection, EmployeeName string, start, end time.Time) ReportBlock {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	filter := bson.M{
+		"full_name": EmployeeName,
+		"call_date": bson.M{
+			"$gte": start,
+			"$lte": end,
+		},
+	}
+
+	// Create aggregation pipeline
+	pipeline := mongo.Pipeline{
+		{{Key: "$match", Value: filter}},
+		{{Key: "$sort", Value: bson.M{"call_date": 1}}},
+	}
+
+	cursor, err := callLogsCollection.Aggregate(ctx, pipeline)
+	if err != nil {
+		fmt.Println("Error fetching logs:", err)
+		return ReportBlock{}
+	}
+
+	defer cursor.Close(ctx)
+
+	var logs []bson.M
+	cursor.All(ctx, &logs)
+
+	if len(logs) == 0 {
+		return ReportBlock{}
+	}
+
+	totalCount := len(logs)
+	totalDuration := 0
+	nonZero := 0
+	zero := 0
+
+	// Loop through logs to calculate durations
+	for _, log := range logs {
+		durationAny, ok := log["lenth_in_sec"]
+		if !ok {
+			continue
+		}
+
+		var duration int
+		switch v := durationAny.(type) {
+		case int32:
+			duration = int(v)
+		case int64:
+			duration = int(v)
+		case float64:
+			duration = int(v)
+		}
+
+		totalDuration += duration
+		if duration > 0 {
+			nonZero++
+		} else {
+			zero++
+		}
+	}
+	// First and last call (sorted already)
+	firstCall := logs[0]
+	lastCall := logs[len(logs)-1]
+
+	return ReportBlock{
+		TotalCount:           totalCount,
+		NonZeroDurationCount: nonZero,
+		ZeroDurationCount:    zero,
+		TotalDuration:        totalDuration,
+		FirstCallObject:      firstCall,
+		LastCallObject:       lastCall,
+	}
 }
 
 func getCallReport(callLogsCollection *mongo.Collection, employeeID string, numbers []string, start, end time.Time) ReportBlock {
