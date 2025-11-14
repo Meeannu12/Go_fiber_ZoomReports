@@ -6,7 +6,9 @@ import (
 	"go_fiber_Zoom_Report/config"
 	"go_fiber_Zoom_Report/models"
 	"go_fiber_Zoom_Report/utils"
+	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,15 +26,16 @@ type Staff struct {
 }
 
 type StaffReport struct {
-	Name          string      `json:"name"`
-	Branch        string      `json:"branch"`
-	EmployeeID    string      `json:"employeeId"`
-	Profile       string      `json:"profile"`
-	Attendee      int      `json:"attendee"`
-	DilerReport   ReportBlock `json:"dilerReport"`
-	CRMReport     ReportBlock `json:"crmReport"`
-	AdvisorReport ReportBlock `json:"advisorReport"`
-	AvyuktaReport ReportBlock `json:"avyuktaReport"`
+	Name          string         `json:"name"`
+	Branch        string         `json:"branch"`
+	EmployeeID    string         `json:"employeeId"`
+	Profile       string         `json:"profile"`
+	Attendee      int            `json:"attendee"`
+	Sales         map[string]int `json:"sales"`
+	DilerReport   ReportBlock    `json:"dilerReport"`
+	CRMReport     ReportBlock    `json:"crmReport"`
+	AdvisorReport ReportBlock    `json:"advisorReport"`
+	AvyuktaReport ReportBlock    `json:"avyuktaReport"`
 }
 
 type StaffDailyReport struct {
@@ -58,6 +61,14 @@ type ReportBlock struct {
 	TotalDuration        int         `json:"totalDuration"`
 	FirstCallObject      interface{} `json:"firstCallObject"`
 	LastCallObject       interface{} `json:"lastCallObject"`
+}
+
+type SalesLead struct {
+	L1               string    `bson:"L1"`
+	L2L3             string    `bson:"L2/L3"`
+	DateOfEnrollment time.Time `bson:"Date of Enrollment"`
+	StudentName      string    `bson:"Student Name"`
+	Source           string    `bson:"Source"`
 }
 
 type AdvisingController struct{}
@@ -160,6 +171,7 @@ func GetCombineReport(c *fiber.Ctx) error {
 		advisorReport := getCallReport(callLogsCollection, empID, advisingNumbers, startOfDay, endOfDay)
 		avyuktaReport := getAvyuktaCallReport(avyuktaCallCallection, name, startOfDay, endOfDay)
 		attendee := getAllAttendeeCount(name, startOfDay, endOfDay)
+		sales := getSalesReport(name, startOfDay, endOfDay)
 
 		finalReport = append(finalReport, StaffReport{
 			Name:          name,
@@ -167,6 +179,7 @@ func GetCombineReport(c *fiber.Ctx) error {
 			EmployeeID:    empID,
 			Profile:       profile,
 			Attendee:      attendee,
+			Sales:         sales,
 			DilerReport:   dilerReport,
 			CRMReport:     crmReport,
 			AdvisorReport: advisorReport,
@@ -624,6 +637,85 @@ func getAllAttendeeCount(name string, start, end time.Time) int {
 	return total
 }
 
+// func getSalesReport(name string, start, end time.Time) int{
+// 	collection := config.GetCollection("ZoomDB", "salesleads") // change this to your actual collection name
+// 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+// 	defer cancel()
+
+// 	filter := bson.M{
+// 		"Date of Enrollment": bson.M{
+// 			"$gte": start,
+// 			"$lte": end,
+// 		},
+// 	}
+
+// 	cursor, err := collection.Find(ctx, filter)
+// 	if err != nil {
+// 		fmt.Println("Error fetching data:", err)
+// 		return 0
+// 	}
+// 	defer cursor.Close(ctx)
+
+// }
+
+func getSalesReport(name string, start, end time.Time) map[string]int {
+
+	collection := config.GetCollection("ZoomDB", "salesleads")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	// Date filter
+	filter := bson.M{
+		"Date of Enrollment": bson.M{
+			"$gte": start,
+			"$lte": end,
+		},
+		// Only documents where L1 or L2/L3 CONTAINS the name
+		"$or": []bson.M{
+			{"L1": bson.M{"$regex": name, "$options": "i"}},
+			{"L2/L3": bson.M{"$regex": name, "$options": "i"}},
+		},
+	}
+
+	cursor, err := collection.Find(ctx, filter)
+	if err != nil {
+		fmt.Println("Error fetching:", err)
+		return nil
+	}
+	defer cursor.Close(ctx)
+
+	var results []SalesLead
+	if err := cursor.All(ctx, &results); err != nil {
+		fmt.Println("Decode error:", err)
+		return nil
+	}
+
+	count := map[string]int{
+		"L1":   0,
+		"L2L3": 0,
+	}
+
+	for _, r := range results {
+
+		// If L1 contains given name
+		if strings.Contains(strings.ToLower(r.L1), strings.ToLower(name)) {
+			count["L1"]++
+		}
+
+		// If L2/L3 contains given name
+		if strings.Contains(strings.ToLower(r.L2L3), strings.ToLower(name)) {
+			count["L2L3"]++
+		}
+	}
+
+	return count
+}
+
+func cleanName(value string) string {
+	re := regexp.MustCompile(`\s+(L\d(\/\d)?|OV).*`)
+	return strings.TrimSpace(re.ReplaceAllString(value, ""))
+}
+
 // GetAdvisingNumbersByEmployeeID returns all phone numbers for a given employeeid
 func (c *AdvisingController) GetAdvisingNumbersByEmployeeID(employeeID string) ([]string, error) {
 	advisingCollection := config.GetCollection("ZoomDB", "advisingleads")
@@ -805,58 +897,3 @@ func removeDuplicates(arr []string) []string {
 	}
 	return list
 }
-
-// func (c *Attendees) GetAllAttendeeCount(teamName string, startDate, endDate time.Time) int {
-// 	collection := config.GetCollection("ZoomDB", "attendees")
-
-// 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-// 	defer cancel()
-
-// 	// Build filter
-// 	filter := bson.M{
-// 		"Team": teamName,
-// 		"Date": bson.M{
-// 			"$gte": startDate,
-// 			"$lte": endDate,
-// 		},
-// 	}
-
-// 	// Define aggregation pipeline: match + sum attendees
-// 	pipeline := mongo.Pipeline{
-// 		{{Key: "$match", Value: filter}},
-// 		{{Key: "$group", Value: bson.M{
-// 			"_id":        nil,
-// 			"totalCount": bson.M{"$sum": "$Attendees"},
-// 		}}},
-// 	}
-
-// 	cursor, err := collection.Aggregate(ctx, pipeline)
-// 	if err != nil {
-// 		return 0, err
-// 	}
-// 	defer cursor.Close(ctx)
-
-// 	var result []bson.M
-// 	if err := cursor.All(ctx, &result); err != nil {
-// 		return 0, err
-// 	}
-
-// 	if len(result) == 0 {
-// 		return 0, nil // no records found
-// 	}
-
-// 	// Extract totalCount safely
-// 	total, ok := result[0]["totalCount"].(int32)
-// 	if !ok {
-// 		switch v := result[0]["totalCount"].(type) {
-// 		case int64:
-// 			return int(v), nil
-// 		case float64:
-// 			return int(v), nil
-// 		default:
-// 			return 0, nil
-// 		}
-// 	}
-
-// 	return int(total), nil
-// }
