@@ -43,6 +43,8 @@ type StaffDailyReport struct {
 	Branch        string           `json:"branch"`
 	EmployeeID    string           `json:"employeeId"`
 	Profile       string           `json:"profile"`
+	Attendee      int              `json:"attendee"`
+	Sales         map[string]int   `json:"sales"`
 	DilerReport   []EveryDayReport `json:"dilerReport"`
 	CRMReport     []EveryDayReport `json:"crmReport"`
 	AdvisorReport []EveryDayReport `json:"advisorReport"`
@@ -278,12 +280,16 @@ func DayByReportEveryStaff(c *fiber.Ctx) error {
 		crmReport, _ := getDailyCallReport(callLogsCollection, empID, crmNumbers, startOfDay, endOfDay)
 		advisorReport, _ := getDailyCallReport(callLogsCollection, empID, advisingNumbers, startOfDay, endOfDay)
 		avyuktaReport, _ := getDailyAvyuktaCallSummary(avyuktaCallLogs, name, startOfDay, endOfDay)
+		attendee := getAllAttendeeCount(name, startOfDay, endOfDay)
+		sales := getSalesReport(name, startOfDay, endOfDay)
 
 		finalReport = append(finalReport, StaffDailyReport{
 			Name:          name,
 			Branch:        branch,
 			EmployeeID:    empID,
 			Profile:       profile,
+			Attendee:      attendee,
+			Sales:         sales,
 			DilerReport:   dilerReport,
 			CRMReport:     crmReport,
 			AdvisorReport: advisorReport,
