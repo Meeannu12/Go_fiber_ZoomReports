@@ -106,7 +106,14 @@ func GetCombineReport(c *fiber.Ctx) error {
 		"profile":    1,
 	})
 
-	cursor, err := staffCollection.Find(ctx, bson.M{}, findOptions)
+	// Filter: exclude role = "block"
+	filter := bson.M{
+		"role": bson.M{
+			"$ne": "block", // not equal
+		},
+	}
+
+	cursor, err := staffCollection.Find(ctx, filter, findOptions)
 
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "Failed to fetch staff"})
@@ -219,7 +226,14 @@ func DayByReportEveryStaff(c *fiber.Ctx) error {
 		"profile":    1,
 	})
 
-	cursor, err := staffCollection.Find(ctx, bson.M{}, findOptions)
+	// Filter: exclude role = "block"
+	filter := bson.M{
+		"role": bson.M{
+			"$ne": "block", // not equal
+		},
+	}
+
+	cursor, err := staffCollection.Find(ctx, filter, findOptions)
 
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "Failed to fetch staff"})
