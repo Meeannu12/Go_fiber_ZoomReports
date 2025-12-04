@@ -73,6 +73,13 @@ type SalesLead struct {
 	DateOfEnrollment time.Time `bson:"Date of Enrollment"`
 	StudentName      string    `bson:"Student Name"`
 	Source           string    `bson:"Source"`
+	Year             string    `bson:"Year"`
+}
+
+type YearSales struct {
+	ID   string `bson:"_id"`
+	L1   int    `bson:"L1"`
+	L2L3 int    `bson:"L2L3"`
 }
 
 type AdvisingController struct{}
@@ -804,7 +811,6 @@ func getSalesReport(name string, start, end time.Time) map[string]int {
 func getSalesReportByYear(name string) map[string]map[string]int {
 
 	collection := config.GetCollection("ZoomDB", "salesleads")
-
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
@@ -820,15 +826,13 @@ func getSalesReportByYear(name string) map[string]map[string]int {
 			{"L1", bson.D{{"$sum", bson.D{
 				{"$cond", bson.A{
 					bson.D{{"$regexMatch", bson.D{{"input", "$L1"}, {"regex", name}, {"options", "i"}}}},
-					1,
-					0,
+					1, 0,
 				}},
 			}}}},
 			{"L2L3", bson.D{{"$sum", bson.D{
 				{"$cond", bson.A{
 					bson.D{{"$regexMatch", bson.D{{"input", "$L2/L3"}, {"regex", name}, {"options", "i"}}}},
-					1,
-					0,
+					1, 0,
 				}},
 			}}}},
 		}}},
@@ -840,21 +844,22 @@ func getSalesReportByYear(name string) map[string]map[string]int {
 		return nil
 	}
 
-	var data []bson.M
-	cursor.All(ctx, &data)
+	var results []YearSales
+	if err := cursor.All(ctx, &results); err != nil {
+		fmt.Println("Cursor decode error:", err)
+		return nil
+	}
 
-	result := map[string]map[string]int{}
+	final := map[string]map[string]int{}
 
-	for _, row := range data {
-		year := row["_id"].(string)
-
-		result[year] = map[string]int{
-			"L1":   int(row["L1"].(int32)),
-			"L2L3": int(row["L2L3"].(int32)),
+	for _, r := range results {
+		final[r.ID] = map[string]int{
+			"L1":   r.L1,
+			"L2L3": r.L2L3,
 		}
 	}
 
-	return result
+	return final
 }
 
 func cleanName(value string) string {
