@@ -675,8 +675,19 @@ func getAttendeeCounts(team string, start, end time.Time) (int, int) {
 	rangeCur.All(ctx, &rangeResult)
 
 	var dateRangeAttendees int
+	// if len(rangeResult) > 0 {
+	// 	dateRangeAttendees = rangeResult[0]["total"].(int)
+	// }
+
 	if len(rangeResult) > 0 {
-		dateRangeAttendees = rangeResult[0]["total"].(int)
+		switch v := rangeResult[0]["total"].(type) {
+		case int32:
+			dateRangeAttendees = int(v)
+		case int64:
+			dateRangeAttendees = int(v)
+		case float64:
+			dateRangeAttendees = int(v)
+		}
 	}
 
 	// --- Pipeline 2: Sum all attendees for that team (no date filter) ---
@@ -695,8 +706,19 @@ func getAttendeeCounts(team string, start, end time.Time) (int, int) {
 	totalCur.All(ctx, &totalResult)
 
 	var totalAttendees int
+	// if len(totalResult) > 0 {
+	// 	totalAttendees = totalResult[0]["total"].(int)
+	// }
+
 	if len(totalResult) > 0 {
-		totalAttendees = totalResult[0]["total"].(int)
+		switch v := totalResult[0]["total"].(type) {
+		case int32:
+			totalAttendees = int(v)
+		case int64:
+			totalAttendees = int(v)
+		case float64:
+			totalAttendees = int(v)
+		}
 	}
 
 	return dateRangeAttendees, totalAttendees
