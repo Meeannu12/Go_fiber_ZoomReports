@@ -26,17 +26,18 @@ type Staff struct {
 }
 
 type StaffReport struct {
-	Name          string         `json:"name"`
-	Branch        string         `json:"branch"`
-	EmployeeID    string         `json:"employeeId"`
-	Profile       string         `json:"profile"`
-	Attendee      int            `json:"attendee"`
-	TotalAttendee int            `json:"totalAttendees"`
-	Sales         map[string]int `json:"sales"`
-	DilerReport   ReportBlock    `json:"dilerReport"`
-	CRMReport     ReportBlock    `json:"crmReport"`
-	AdvisorReport ReportBlock    `json:"advisorReport"`
-	AvyuktaReport ReportBlock    `json:"avyuktaReport"`
+	Name          string                    `json:"name"`
+	Branch        string                    `json:"branch"`
+	EmployeeID    string                    `json:"employeeId"`
+	Profile       string                    `json:"profile"`
+	Attendee      int                       `json:"attendee"`
+	TotalAttendee int                       `json:"totalAttendees"`
+	Sales         map[string]int            `json:"sales"`
+	YearSale      map[string]map[string]int `json:"yearSale"`
+	DilerReport   ReportBlock               `json:"dilerReport"`
+	CRMReport     ReportBlock               `json:"crmReport"`
+	AdvisorReport ReportBlock               `json:"advisorReport"`
+	AvyuktaReport ReportBlock               `json:"avyuktaReport"`
 }
 
 type StaffDailyReport struct {
@@ -182,6 +183,7 @@ func GetCombineReport(c *fiber.Ctx) error {
 		avyuktaReport := getAvyuktaCallReport(avyuktaCallCallection, name, startOfDay, endOfDay)
 		attendee, totalAttendees := getAttendeeCounts(name, startOfDay, endOfDay)
 		sales := getSalesReport(name, startOfDay, endOfDay)
+		yearSale, _ := getSalesReportByName(name)
 
 		finalReport = append(finalReport, StaffReport{
 			Name:          name,
@@ -191,6 +193,7 @@ func GetCombineReport(c *fiber.Ctx) error {
 			Attendee:      attendee,
 			TotalAttendee: totalAttendees,
 			Sales:         sales,
+			YearSale:      yearSale,
 			DilerReport:   dilerReport,
 			CRMReport:     crmReport,
 			AdvisorReport: advisorReport,
@@ -796,6 +799,72 @@ func getSalesReport(name string, start, end time.Time) map[string]int {
 	}
 
 	return count
+}
+
+func getSalesReportByName(name string) (map[string]map[string]int, error) {
+	collection := config.GetCollection("ZoomDB", "salesleads")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	nameLower := strings.ToLower(name)
+
+	pipeline := mongo.Pipeline{
+		// Match documents where name exists in L1 or L2/L3
+		{
+			{"$match", bson.M{
+				"$or": []bson.M{
+					{"L1": bson.M{"$regex": nameLower, "$options": "i"}},
+					{"L2/L3": bson.M{"$regex": nameLower, "$options": "i"}},
+				},
+			}},
+		},
+		// Group by Year and sum separately for L1 and L2/L3
+		{
+			{"$group", bson.M{
+				"_id":  "$Year",
+				"L1":   bson.M{"$sum": bson.M{"$cond": []interface{}{bson.M{"$regexMatch": bson.M{"input": "$L1", "regex": nameLower, "options": "i"}}, 1, 0}}},
+				"L2L3": bson.M{"$sum": bson.M{"$cond": []interface{}{bson.M{"$regexMatch": bson.M{"input": "$L2/L3", "regex": nameLower, "options": "i"}}, 1, 0}}},
+			}},
+		},
+	}
+
+	cursor, err := collection.Aggregate(ctx, pipeline)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var aggResults []bson.M
+	if err := cursor.All(ctx, &aggResults); err != nil {
+		return nil, err
+	}
+
+	// Build response map
+	result := make(map[string]map[string]int)
+	for _, r := range aggResults {
+		year := r["_id"].(string)
+		L1 := 0
+		L2L3 := 0
+
+		if val, ok := r["L1"].(int32); ok {
+			L1 = int(val)
+		} else if val, ok := r["L1"].(int64); ok {
+			L1 = int(val)
+		}
+
+		if val, ok := r["L2L3"].(int32); ok {
+			L2L3 = int(val)
+		} else if val, ok := r["L2L3"].(int64); ok {
+			L2L3 = int(val)
+		}
+
+		result[year] = map[string]int{
+			"L1":   L1,
+			"L2L3": L2L3,
+		}
+	}
+
+	return result, nil
 }
 
 func cleanName(value string) string {
