@@ -183,7 +183,7 @@ func GetCombineReport(c *fiber.Ctx) error {
 		avyuktaReport := getAvyuktaCallReport(avyuktaCallCallection, name, startOfDay, endOfDay)
 		attendee, totalAttendees := getAttendeeCounts(name, startOfDay, endOfDay)
 		sales := getSalesReport(name, startOfDay, endOfDay)
-		yearSale, _ := getSalesReportByName(name)
+		yearSale := getSalesReportByYear(name)
 
 		finalReport = append(finalReport, StaffReport{
 			Name:          name,
@@ -801,70 +801,60 @@ func getSalesReport(name string, start, end time.Time) map[string]int {
 	return count
 }
 
-func getSalesReportByName(name string) (map[string]map[string]int, error) {
+func getSalesReportByYear(name string) map[string]map[string]int {
+
 	collection := config.GetCollection("ZoomDB", "salesleads")
+
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	nameLower := strings.ToLower(name)
-
 	pipeline := mongo.Pipeline{
-		// Match documents where name exists in L1 or L2/L3
-		{
-			{"$match", bson.M{
-				"$or": []bson.M{
-					{"L1": bson.M{"$regex": nameLower, "$options": "i"}},
-					{"L2/L3": bson.M{"$regex": nameLower, "$options": "i"}},
-				},
+		{{"$match", bson.D{
+			{"$or", bson.A{
+				bson.D{{"L1", bson.D{{"$regex", name}, {"$options", "i"}}}},
+				bson.D{{"L2/L3", bson.D{{"$regex", name}, {"$options", "i"}}}},
 			}},
-		},
-		// Group by Year and sum separately for L1 and L2/L3
-		{
-			{"$group", bson.M{
-				"_id":  "$Year",
-				"L1":   bson.M{"$sum": bson.M{"$cond": []interface{}{bson.M{"$regexMatch": bson.M{"input": "$L1", "regex": nameLower, "options": "i"}}, 1, 0}}},
-				"L2L3": bson.M{"$sum": bson.M{"$cond": []interface{}{bson.M{"$regexMatch": bson.M{"input": "$L2/L3", "regex": nameLower, "options": "i"}}, 1, 0}}},
-			}},
-		},
+		}}},
+		{{"$group", bson.D{
+			{"_id", "$Year"},
+			{"L1", bson.D{{"$sum", bson.D{
+				{"$cond", bson.A{
+					bson.D{{"$regexMatch", bson.D{{"input", "$L1"}, {"regex", name}, {"options", "i"}}}},
+					1,
+					0,
+				}},
+			}}}},
+			{"L2L3", bson.D{{"$sum", bson.D{
+				{"$cond", bson.A{
+					bson.D{{"$regexMatch", bson.D{{"input", "$L2/L3"}, {"regex", name}, {"options", "i"}}}},
+					1,
+					0,
+				}},
+			}}}},
+		}}},
 	}
 
 	cursor, err := collection.Aggregate(ctx, pipeline)
 	if err != nil {
-		return nil, err
-	}
-	defer cursor.Close(ctx)
-
-	var aggResults []bson.M
-	if err := cursor.All(ctx, &aggResults); err != nil {
-		return nil, err
+		fmt.Println("Aggregation error:", err)
+		return nil
 	}
 
-	// Build response map
-	result := make(map[string]map[string]int)
-	for _, r := range aggResults {
-		year := r["_id"].(string)
-		L1 := 0
-		L2L3 := 0
+	var data []bson.M
+	cursor.All(ctx, &data)
 
-		if val, ok := r["L1"].(int32); ok {
-			L1 = int(val)
-		} else if val, ok := r["L1"].(int64); ok {
-			L1 = int(val)
-		}
+	result := map[string]map[string]int{}
 
-		if val, ok := r["L2L3"].(int32); ok {
-			L2L3 = int(val)
-		} else if val, ok := r["L2L3"].(int64); ok {
-			L2L3 = int(val)
-		}
+	for _, row := range data {
+		year := row["_id"].(string)
 
 		result[year] = map[string]int{
-			"L1":   L1,
-			"L2L3": L2L3,
+			"L1":   int(row["L1"].(int32)),
+			"L2L3": int(row["L2L3"].(int32)),
 		}
 	}
 
-	return result, nil
+	return result
 }
 
 func cleanName(value string) string {
