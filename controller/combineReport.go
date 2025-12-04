@@ -30,8 +30,8 @@ type StaffReport struct {
 	Branch        string         `json:"branch"`
 	EmployeeID    string         `json:"employeeId"`
 	Profile       string         `json:"profile"`
-	Attendee      int64          `json:"attendee"`
-	TotalAttendee int64          `json:"totalAttendees"`
+	Attendee      int            `json:"attendee"`
+	TotalAttendee int            `json:"totalAttendees"`
 	Sales         map[string]int `json:"sales"`
 	DilerReport   ReportBlock    `json:"dilerReport"`
 	CRMReport     ReportBlock    `json:"crmReport"`
@@ -649,7 +649,7 @@ func getAllAttendeeCount(name string, start, end time.Time) int {
 	return total
 }
 
-func getAttendeeCounts(team string, start, end time.Time) (int64, int64) {
+func getAttendeeCounts(team string, start, end time.Time) (int, int) {
 	collection := config.GetCollection("ZoomDB", "attendees")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -674,9 +674,9 @@ func getAttendeeCounts(team string, start, end time.Time) (int64, int64) {
 	rangeCur, _ := collection.Aggregate(ctx, pipelineRange)
 	rangeCur.All(ctx, &rangeResult)
 
-	var dateRangeAttendees int64
+	var dateRangeAttendees int
 	if len(rangeResult) > 0 {
-		dateRangeAttendees = rangeResult[0]["total"].(int64)
+		dateRangeAttendees = rangeResult[0]["total"].(int)
 	}
 
 	// --- Pipeline 2: Sum all attendees for that team (no date filter) ---
@@ -694,9 +694,9 @@ func getAttendeeCounts(team string, start, end time.Time) (int64, int64) {
 	totalCur, _ := collection.Aggregate(ctx, pipelineTotal)
 	totalCur.All(ctx, &totalResult)
 
-	var totalAttendees int64
+	var totalAttendees int
 	if len(totalResult) > 0 {
-		totalAttendees = totalResult[0]["total"].(int64)
+		totalAttendees = totalResult[0]["total"].(int)
 	}
 
 	return dateRangeAttendees, totalAttendees
