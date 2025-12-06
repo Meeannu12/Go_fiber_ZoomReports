@@ -41,16 +41,18 @@ type StaffReport struct {
 }
 
 type StaffDailyReport struct {
-	Name          string           `json:"name"`
-	Branch        string           `json:"branch"`
-	EmployeeID    string           `json:"employeeId"`
-	Profile       string           `json:"profile"`
-	Attendee      int              `json:"attendee"`
-	Sales         map[string]int   `json:"sales"`
-	DilerReport   []EveryDayReport `json:"dilerReport"`
-	CRMReport     []EveryDayReport `json:"crmReport"`
-	AdvisorReport []EveryDayReport `json:"advisorReport"`
-	AvyuktaReport []EveryDayReport `json:"avyuktaReport"`
+	Name          string                    `json:"name"`
+	Branch        string                    `json:"branch"`
+	EmployeeID    string                    `json:"employeeId"`
+	Profile       string                    `json:"profile"`
+	Attendee      int                       `json:"attendee"`
+	TotalAttendee int                       `json:"totalAttendees"`
+	Sales         map[string]int            `json:"sales"`
+	DilerReport   []EveryDayReport          `json:"dilerReport"`
+	YearSale      map[string]map[string]int `json:"yearSale"`
+	CRMReport     []EveryDayReport          `json:"crmReport"`
+	AdvisorReport []EveryDayReport          `json:"advisorReport"`
+	AvyuktaReport []EveryDayReport          `json:"avyuktaReport"`
 }
 
 type EveryDayReport struct {
@@ -306,8 +308,10 @@ func DayByReportEveryStaff(c *fiber.Ctx) error {
 		crmReport, _ := getDailyCallReport(callLogsCollection, empID, crmNumbers, startOfDay, endOfDay)
 		advisorReport, _ := getDailyCallReport(callLogsCollection, empID, advisingNumbers, startOfDay, endOfDay)
 		avyuktaReport, _ := getDailyAvyuktaCallSummary(avyuktaCallLogs, name, startOfDay, endOfDay)
-		attendee := getAllAttendeeCount(name, startOfDay, endOfDay)
+		// attendee := getAllAttendeeCount(name, startOfDay, endOfDay)
+		attendee, totalAttendees := getAttendeeCounts(name, startOfDay, endOfDay)
 		sales := getSalesReport(name, startOfDay, endOfDay)
+		yearSale := getSalesReportByYear(name)
 
 		finalReport = append(finalReport, StaffDailyReport{
 			Name:          name,
@@ -315,7 +319,9 @@ func DayByReportEveryStaff(c *fiber.Ctx) error {
 			EmployeeID:    empID,
 			Profile:       profile,
 			Attendee:      attendee,
+			TotalAttendee: totalAttendees,
 			Sales:         sales,
+			YearSale:      yearSale,
 			DilerReport:   dilerReport,
 			CRMReport:     crmReport,
 			AdvisorReport: advisorReport,
@@ -618,46 +624,46 @@ func getDailyAvyuktaCallSummary(collection *mongo.Collection, fullName string, s
 	return fullResults, nil
 }
 
-func getAllAttendeeCount(name string, start, end time.Time) int {
-	collection := config.GetCollection("ZoomDB", "attendees") // change this to your actual collection name
+// func getAllAttendeeCount(name string, start, end time.Time) int {
+// 	collection := config.GetCollection("ZoomDB", "attendees") // change this to your actual collection name
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+// 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+// 	defer cancel()
 
-	filter := bson.M{
-		"Team": name,
-		"Date": bson.M{
-			"$gte": start,
-			"$lte": end,
-		},
-	}
+// 	filter := bson.M{
+// 		"Team": name,
+// 		"Date": bson.M{
+// 			"$gte": start,
+// 			"$lte": end,
+// 		},
+// 	}
 
-	cursor, err := collection.Find(ctx, filter)
-	if err != nil {
-		fmt.Println("Error fetching data:", err)
-		return 0
-	}
-	defer cursor.Close(ctx)
+// 	cursor, err := collection.Find(ctx, filter)
+// 	if err != nil {
+// 		fmt.Println("Error fetching data:", err)
+// 		return 0
+// 	}
+// 	defer cursor.Close(ctx)
 
-	var results []bson.M
-	if err := cursor.All(ctx, &results); err != nil {
-		fmt.Println("Error decoding data:", err)
-		return 0
-	}
+// 	var results []bson.M
+// 	if err := cursor.All(ctx, &results); err != nil {
+// 		fmt.Println("Error decoding data:", err)
+// 		return 0
+// 	}
 
-	total := 0
-	for _, doc := range results {
-		if val, ok := doc["Attendees"].(int32); ok {
-			total += int(val)
-		} else if val, ok := doc["Attendees"].(int64); ok {
-			total += int(val)
-		} else if val, ok := doc["Attendees"].(float64); ok {
-			total += int(val)
-		}
-	}
+// 	total := 0
+// 	for _, doc := range results {
+// 		if val, ok := doc["Attendees"].(int32); ok {
+// 			total += int(val)
+// 		} else if val, ok := doc["Attendees"].(int64); ok {
+// 			total += int(val)
+// 		} else if val, ok := doc["Attendees"].(float64); ok {
+// 			total += int(val)
+// 		}
+// 	}
 
-	return total
-}
+// 	return total
+// }
 
 func getAttendeeCounts(team string, start, end time.Time) (int, int) {
 	collection := config.GetCollection("ZoomDB", "attendees")
@@ -734,26 +740,6 @@ func getAttendeeCounts(team string, start, end time.Time) (int, int) {
 	return dateRangeAttendees, totalAttendees
 }
 
-// func getSalesReport(name string, start, end time.Time) int{
-// 	collection := config.GetCollection("ZoomDB", "salesleads") // change this to your actual collection name
-// 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-// 	defer cancel()
-
-// 	filter := bson.M{
-// 		"Date of Enrollment": bson.M{
-// 			"$gte": start,
-// 			"$lte": end,
-// 		},
-// 	}
-
-// 	cursor, err := collection.Find(ctx, filter)
-// 	if err != nil {
-// 		fmt.Println("Error fetching data:", err)
-// 		return 0
-// 	}
-// 	defer cursor.Close(ctx)
-
-// }
 
 func getSalesReport(name string, start, end time.Time) map[string]int {
 
