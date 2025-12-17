@@ -7,6 +7,7 @@ import (
 	"go_fiber_Zoom_Report/models"
 	"go_fiber_Zoom_Report/utils"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -118,9 +119,16 @@ func GetCombineReport(c *fiber.Ctx) error {
 	})
 
 	// Filter: exclude role = "block"
+	// filter := bson.M{
+	// 	"role": bson.M{
+	// 		"$ne": "block", // not equal
+	// 	},
+	// }
+
 	filter := bson.M{
-		"role": bson.M{
-			"$ne": "block", // not equal
+		"$and": []bson.M{
+			{"role": bson.M{"$ne": "block"}},
+			{"profile": bson.M{"$ne": "admin"}},
 		},
 	}
 
@@ -210,6 +218,19 @@ func GetCombineReport(c *fiber.Ctx) error {
 		})
 	}
 
+	// Step 1: Sort finalReport dynamically by branch (ascending)
+	sort.Slice(finalReport, func(i, j int) bool {
+		return finalReport[i].Branch < finalReport[j].Branch
+	})
+
+	// Optional: within same branch, sort by Name
+	sort.SliceStable(finalReport, func(i, j int) bool {
+		if finalReport[i].Branch == finalReport[j].Branch {
+			return finalReport[i].Name < finalReport[j].Name
+		}
+		return false
+	})
+
 	return c.JSON(finalReport)
 }
 
@@ -241,9 +262,16 @@ func DayByReportEveryStaff(c *fiber.Ctx) error {
 	})
 
 	// Filter: exclude role = "block"
+	// filter := bson.M{
+	// 	"role": bson.M{
+	// 		"$ne": "block", // not equal
+	// 	},
+	// }
+
 	filter := bson.M{
-		"role": bson.M{
-			"$ne": "block", // not equal
+		"$and": []bson.M{
+			{"role": bson.M{"$ne": "block"}},
+			{"profile": bson.M{"$ne": "admin"}},
 		},
 	}
 
@@ -739,7 +767,6 @@ func getAttendeeCounts(team string, start, end time.Time) (int, int) {
 
 	return dateRangeAttendees, totalAttendees
 }
-
 
 func getSalesReport(name string, start, end time.Time) map[string]int {
 
