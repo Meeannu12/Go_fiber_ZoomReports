@@ -126,9 +126,7 @@ func GetCombineReport(c *fiber.Ctx) error {
 	// }
 
 	filter := bson.M{
-		"role": bson.M{
-			"$in": []string{"admin", "block"},
-		},
+		"role": "user",
 	}
 
 	// filter := bson.M{
@@ -275,9 +273,7 @@ func DayByReportEveryStaff(c *fiber.Ctx) error {
 	// }
 
 	filter := bson.M{
-		"role": bson.M{
-			"$in": []string{"admin", "block"},
-		},
+		"role": "user",
 	}
 
 	// filter := bson.M{
