@@ -357,6 +357,19 @@ func DayByReportEveryStaff(c *fiber.Ctx) error {
 		})
 	}
 
+	// Step 1: Sort finalReport dynamically by branch (ascending)
+	sort.Slice(finalReport, func(i, j int) bool {
+		return finalReport[i].Branch < finalReport[j].Branch
+	})
+
+	// Optional: within same branch, sort by Name
+	sort.SliceStable(finalReport, func(i, j int) bool {
+		if finalReport[i].Branch == finalReport[j].Branch {
+			return finalReport[i].Name < finalReport[j].Name
+		}
+		return false
+	})
+
 	return c.JSON(finalReport)
 }
 
