@@ -126,11 +126,17 @@ func GetCombineReport(c *fiber.Ctx) error {
 	// }
 
 	filter := bson.M{
-		"$and": []bson.M{
-			{"role": bson.M{"$ne": "block"}},
-			{"profile": bson.M{"$ne": "admin"}},
+		"role": bson.M{
+			"$in": []string{"admin", "block"},
 		},
 	}
+
+	// filter := bson.M{
+	// 	"$and": []bson.M{
+	// 		{"role": bson.M{"$ne": "block"}},
+	// 		{"profile": bson.M{"$ne": "admin"}},
+	// 	},
+	// }
 
 	cursor, err := staffCollection.Find(ctx, filter, findOptions)
 
@@ -269,11 +275,17 @@ func DayByReportEveryStaff(c *fiber.Ctx) error {
 	// }
 
 	filter := bson.M{
-		"$and": []bson.M{
-			{"role": bson.M{"$ne": "block"}},
-			{"profile": bson.M{"$ne": "admin"}},
+		"role": bson.M{
+			"$in": []string{"admin", "block"},
 		},
 	}
+
+	// filter := bson.M{
+	// 	"$and": []bson.M{
+	// 		{"role": bson.M{"$ne": "block"}},
+	// 		{"profile": bson.M{"$ne": "admin"}},
+	// 	},
+	// }
 
 	cursor, err := staffCollection.Find(ctx, filter, findOptions)
 
