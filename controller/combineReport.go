@@ -42,18 +42,22 @@ type StaffReport struct {
 }
 
 type StaffDailyReport struct {
-	Name          string                    `json:"name"`
-	Branch        string                    `json:"branch"`
-	EmployeeID    string                    `json:"employeeId"`
-	Profile       string                    `json:"profile"`
-	Attendee      int                       `json:"attendee"`
-	TotalAttendee int                       `json:"totalAttendees"`
-	Sales         map[string]int            `json:"sales"`
-	DilerReport   []EveryDayReport          `json:"dilerReport"`
-	YearSale      map[string]map[string]int `json:"yearSale"`
-	CRMReport     []EveryDayReport          `json:"crmReport"`
-	AdvisorReport []EveryDayReport          `json:"advisorReport"`
-	AvyuktaReport []EveryDayReport          `json:"avyuktaReport"`
+	Name              string                    `json:"name"`
+	Branch            string                    `json:"branch"`
+	EmployeeID        string                    `json:"employeeId"`
+	Profile           string                    `json:"profile"`
+	Attendee          int                       `json:"attendee"`
+	TotalAttendee     int                       `json:"totalAttendees"`
+	Registration      int                       `json:"registration"`
+	TotalRegistration int                       `json:"totalRegistration"`
+	Intrested         int                       `json:"intrested"`
+	TotalIntrested    int                       `json:"totalIntrested"`
+	Sales             map[string]int            `json:"sales"`
+	DilerReport       []EveryDayReport          `json:"dilerReport"`
+	YearSale          map[string]map[string]int `json:"yearSale"`
+	CRMReport         []EveryDayReport          `json:"crmReport"`
+	AdvisorReport     []EveryDayReport          `json:"advisorReport"`
+	AvyuktaReport     []EveryDayReport          `json:"avyuktaReport"`
 }
 
 type EveryDayReport struct {
@@ -346,22 +350,28 @@ func DayByReportEveryStaff(c *fiber.Ctx) error {
 		avyuktaReport, _ := getDailyAvyuktaCallSummary(avyuktaCallLogs, name, startOfDay, endOfDay)
 		// attendee := getAllAttendeeCount(name, startOfDay, endOfDay)
 		attendee, totalAttendees := getAttendeeCounts(name, startOfDay, endOfDay)
+		intrested, totalIntrested := getIntrestedCounts(name, startOfDay, endOfDay)
+		registration, totalRegistration := getRegistrationCounts(name, startOfDay, endOfDay)
 		sales := getSalesReport(name, startOfDay, endOfDay)
 		yearSale := getSalesReportByYear(name)
 
 		finalReport = append(finalReport, StaffDailyReport{
-			Name:          name,
-			Branch:        branch,
-			EmployeeID:    empID,
-			Profile:       profile,
-			Attendee:      attendee,
-			TotalAttendee: totalAttendees,
-			Sales:         sales,
-			YearSale:      yearSale,
-			DilerReport:   dilerReport,
-			CRMReport:     crmReport,
-			AdvisorReport: advisorReport,
-			AvyuktaReport: avyuktaReport,
+			Name:              name,
+			Branch:            branch,
+			EmployeeID:        empID,
+			Profile:           profile,
+			Attendee:          attendee,
+			TotalAttendee:     totalAttendees,
+			Registration:      registration,
+			TotalRegistration: totalRegistration,
+			Intrested:         intrested,
+			TotalIntrested:    totalIntrested,
+			Sales:             sales,
+			YearSale:          yearSale,
+			DilerReport:       dilerReport,
+			CRMReport:         crmReport,
+			AdvisorReport:     advisorReport,
+			AvyuktaReport:     avyuktaReport,
 		})
 	}
 
@@ -787,6 +797,156 @@ func getAttendeeCounts(team string, start, end time.Time) (int, int) {
 	}
 
 	return dateRangeAttendees, totalAttendees
+}
+
+func getIntrestedCounts(team string, start, end time.Time) (int, int) {
+	collection := config.GetCollection("ZoomDB", "attendees")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	// --- Pipeline 1: Sum between start and end ---
+	pipelineRange := mongo.Pipeline{
+		{{"$match", bson.D{
+			{"Team", team},
+			{"Date", bson.D{
+				{"$gte", start},
+				{"$lte", end},
+			}},
+		}}},
+		{{"$group", bson.D{
+			{"_id", nil},
+			{"total", bson.D{{"$sum", "$Intrested"}}},
+		}}},
+	}
+
+	var rangeResult []bson.M
+	rangeCur, _ := collection.Aggregate(ctx, pipelineRange)
+	rangeCur.All(ctx, &rangeResult)
+
+	var dateRangeIntrested int
+	// if len(rangeResult) > 0 {
+	// 	dateRangeAttendees = rangeResult[0]["total"].(int)
+	// }
+
+	if len(rangeResult) > 0 {
+		switch v := rangeResult[0]["total"].(type) {
+		case int32:
+			dateRangeIntrested = int(v)
+		case int64:
+			dateRangeIntrested = int(v)
+		case float64:
+			dateRangeIntrested = int(v)
+		}
+	}
+
+	// --- Pipeline 2: Sum all attendees for that team (no date filter) ---
+	pipelineTotal := mongo.Pipeline{
+		{{"$match", bson.D{
+			{"Team", team},
+		}}},
+		{{"$group", bson.D{
+			{"_id", nil},
+			{"total", bson.D{{"$sum", "$Intrested"}}},
+		}}},
+	}
+
+	var totalResult []bson.M
+	totalCur, _ := collection.Aggregate(ctx, pipelineTotal)
+	totalCur.All(ctx, &totalResult)
+
+	var totalIntrested int
+	// if len(totalResult) > 0 {
+	// 	totalAttendees = totalResult[0]["total"].(int)
+	// }
+
+	if len(totalResult) > 0 {
+		switch v := totalResult[0]["total"].(type) {
+		case int32:
+			totalIntrested = int(v)
+		case int64:
+			totalIntrested = int(v)
+		case float64:
+			totalIntrested = int(v)
+		}
+	}
+
+	return dateRangeIntrested, totalIntrested
+}
+
+func getRegistrationCounts(team string, start, end time.Time) (int, int) {
+	collection := config.GetCollection("ZoomDB", "attendees")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	// --- Pipeline 1: Sum between start and end ---
+	pipelineRange := mongo.Pipeline{
+		{{"$match", bson.D{
+			{"Team", team},
+			{"Date", bson.D{
+				{"$gte", start},
+				{"$lte", end},
+			}},
+		}}},
+		{{"$group", bson.D{
+			{"_id", nil},
+			{"total", bson.D{{"$sum", "$Registration"}}},
+		}}},
+	}
+
+	var rangeResult []bson.M
+	rangeCur, _ := collection.Aggregate(ctx, pipelineRange)
+	rangeCur.All(ctx, &rangeResult)
+
+	var dateRangeRegistration int
+	// if len(rangeResult) > 0 {
+	// 	dateRangeAttendees = rangeResult[0]["total"].(int)
+	// }
+
+	if len(rangeResult) > 0 {
+		switch v := rangeResult[0]["total"].(type) {
+		case int32:
+			dateRangeRegistration = int(v)
+		case int64:
+			dateRangeRegistration = int(v)
+		case float64:
+			dateRangeRegistration = int(v)
+		}
+	}
+
+	// --- Pipeline 2: Sum all attendees for that team (no date filter) ---
+	pipelineTotal := mongo.Pipeline{
+		{{"$match", bson.D{
+			{"Team", team},
+		}}},
+		{{"$group", bson.D{
+			{"_id", nil},
+			{"total", bson.D{{"$sum", "$Registration"}}},
+		}}},
+	}
+
+	var totalResult []bson.M
+	totalCur, _ := collection.Aggregate(ctx, pipelineTotal)
+	totalCur.All(ctx, &totalResult)
+
+	var totalRegistration int
+	// if len(totalResult) > 0 {
+	// 	totalAttendees = totalResult[0]["total"].(int)
+	// }
+
+	if len(totalResult) > 0 {
+		switch v := totalResult[0]["total"].(type) {
+		case int32:
+			totalRegistration = int(v)
+		case int64:
+			totalRegistration = int(v)
+		case float64:
+			totalRegistration = int(v)
+		}
+	}
+
+	return dateRangeRegistration, totalRegistration
 }
 
 func getSalesReport(name string, start, end time.Time) map[string]int {
