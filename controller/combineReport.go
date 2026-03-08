@@ -24,21 +24,23 @@ type Staff struct {
 	Name       string `bson:"name" json:"name"`
 	Branch     string `bson:"branch" json:"branch"`
 	Profile    string `bson:"profile" json:"profile"`
+	Device     bool   `bson:"device" json:"device"`
 }
 
 type StaffReport struct {
-	Name          string                    `json:"name"`
-	Branch        string                    `json:"branch"`
-	EmployeeID    string                    `json:"employeeId"`
-	Profile       string                    `json:"profile"`
-	Attendee      int                       `json:"attendee"`
-	TotalAttendee int                       `json:"totalAttendees"`
-	Sales         map[string]int            `json:"sales"`
-	YearSale      map[string]map[string]int `json:"yearSale"`
-	DilerReport   ReportBlock               `json:"dilerReport"`
-	CRMReport     ReportBlock               `json:"crmReport"`
-	AdvisorReport ReportBlock               `json:"advisorReport"`
-	AvyuktaReport ReportBlock               `json:"avyuktaReport"`
+	Name              string                    `json:"name"`
+	Branch            string                    `json:"branch"`
+	EmployeeID        string                    `json:"employeeId"`
+	Profile           string                    `json:"profile"`
+	Attendee          int                       `json:"attendee"`
+	TotalAttendee     int                       `json:"totalAttendees"`
+	Sales             map[string]int            `json:"sales"`
+	YearSale          map[string]map[string]int `json:"yearSale"`
+	DilerReport       ReportBlock               `json:"dilerReport"`
+	CRMReport         ReportBlock               `json:"crmReport"`
+	AdvisorReport     ReportBlock               `json:"advisorReport"`
+	AvyuktaReport     ReportBlock               `json:"avyuktaReport"`
+	OfficePhoneReport ReportBlock               `json:"officeCallReport"`
 }
 
 type StaffDailyReport struct {
@@ -120,6 +122,7 @@ func GetCombineReport(c *fiber.Ctx) error {
 		"name":       1,
 		"branch":     1,
 		"profile":    1,
+		"device":     1,
 	})
 
 	// Filter: exclude role = "block"
@@ -160,6 +163,7 @@ func GetCombineReport(c *fiber.Ctx) error {
 		name := s.Name
 		branch := s.Branch
 		profile := s.Profile
+		device := s.Device
 
 		var (
 			advisingNumbers []string
@@ -201,28 +205,35 @@ func GetCombineReport(c *fiber.Ctx) error {
 		// Optional: remove duplicates
 		allNumbers = removeDuplicates(allNumbers)
 
+		officePhone := append(allNumbers, advisingNumbers...)
+		officePhone = append(officePhone, crmNumbers...)
+
+		officePhone = removeDuplicates(officePhone)
+
 		// ✅ Calculate each report section
 		dilerReport := getCallReport(callLogsCollection, empID, allNumbers, startOfDay, endOfDay)
 		crmReport := getCallReport(callLogsCollection, empID, crmNumbers, startOfDay, endOfDay)
 		advisorReport := getCallReport(callLogsCollection, empID, advisingNumbers, startOfDay, endOfDay)
+		officeCallReport := getOfficePhoneCallReport(callLogsCollection, empID, device, officePhone, startOfDay, endOfDay)
 		avyuktaReport := getAvyuktaCallReport(avyuktaCallCallection, empID, startOfDay, endOfDay)
 		attendee, totalAttendees := getAttendeeCounts(name, startOfDay, endOfDay)
 		sales := getSalesReport(name, startOfDay, endOfDay)
 		yearSale := getSalesReportByYear(name)
 
 		finalReport = append(finalReport, StaffReport{
-			Name:          name,
-			Branch:        branch,
-			EmployeeID:    empID,
-			Profile:       profile,
-			Attendee:      attendee,
-			TotalAttendee: totalAttendees,
-			Sales:         sales,
-			YearSale:      yearSale,
-			DilerReport:   dilerReport,
-			CRMReport:     crmReport,
-			AdvisorReport: advisorReport,
-			AvyuktaReport: avyuktaReport,
+			Name:              name,
+			Branch:            branch,
+			EmployeeID:        empID,
+			Profile:           profile,
+			Attendee:          attendee,
+			TotalAttendee:     totalAttendees,
+			Sales:             sales,
+			YearSale:          yearSale,
+			DilerReport:       dilerReport,
+			CRMReport:         crmReport,
+			AdvisorReport:     advisorReport,
+			AvyuktaReport:     avyuktaReport,
+			OfficePhoneReport: officeCallReport,
 		})
 	}
 
@@ -478,6 +489,78 @@ func getCallReport(callLogsCollection *mongo.Collection, employeeID string, numb
 			"$lte": end,
 		},
 		"phoneNumber": bson.M{"$in": numbers},
+	}
+
+	pipeline := mongo.Pipeline{
+		{{"$match", filter}},
+		{{"$sort", bson.M{"timestamp": 1}}},
+	}
+
+	cursor, err := callLogsCollection.Aggregate(ctx, pipeline)
+	if err != nil {
+		fmt.Println("Error fetching logs:", err)
+		return ReportBlock{}
+	}
+	var logs []bson.M
+	cursor.All(ctx, &logs)
+
+	if len(logs) == 0 {
+		return ReportBlock{}
+	}
+
+	totalCount := len(logs)
+	totalDuration := 0
+	nonZero := 0
+	zero := 0
+
+	for _, log := range logs {
+		durStr, _ := log["duration"].(string)
+		dur, _ := strconv.Atoi(durStr)
+		totalDuration += dur
+		if dur > 0 {
+			nonZero++
+		} else {
+			zero++
+		}
+	}
+
+	firstCall := logs[0]
+	lastCall := logs[len(logs)-1]
+
+	return ReportBlock{
+		TotalCount:           totalCount,
+		NonZeroDurationCount: nonZero,
+		ZeroDurationCount:    zero,
+		TotalDuration:        totalDuration,
+		FirstCallObject:      firstCall,
+		LastCallObject:       lastCall,
+	}
+}
+
+func getOfficePhoneCallReport(callLogsCollection *mongo.Collection, employeeID string, device bool, numbers []string, start, end time.Time) ReportBlock {
+
+	// If device is false → return empty report
+	if !device {
+		return ReportBlock{
+			TotalCount:           0,
+			NonZeroDurationCount: 0,
+			ZeroDurationCount:    0,
+			TotalDuration:        0,
+			FirstCallObject:      nil,
+			LastCallObject:       nil,
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	filter := bson.M{
+		"employeeId": employeeID,
+		"timestamp": bson.M{
+			"$gte": start,
+			"$lte": end,
+		},
+		"phoneNumber": bson.M{"$nin": numbers},
 	}
 
 	pipeline := mongo.Pipeline{

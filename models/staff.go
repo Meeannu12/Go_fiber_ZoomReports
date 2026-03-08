@@ -16,4 +16,5 @@ type Staff struct {
 	Name       string `bson:"name" json:"name"`
 	Branch     string `bson:"branch" json:"branch"`
 	Profile    string `bson:"profile", json:"profile"`
+	Device     bool   `bson:"device", json:"device"`
 }
