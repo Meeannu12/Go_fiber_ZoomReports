@@ -205,7 +205,7 @@ func GetCombineReport(c *fiber.Ctx) error {
 		dilerReport := getCallReport(callLogsCollection, empID, allNumbers, startOfDay, endOfDay)
 		crmReport := getCallReport(callLogsCollection, empID, crmNumbers, startOfDay, endOfDay)
 		advisorReport := getCallReport(callLogsCollection, empID, advisingNumbers, startOfDay, endOfDay)
-		avyuktaReport := getAvyuktaCallReport(avyuktaCallCallection, name, startOfDay, endOfDay)
+		avyuktaReport := getAvyuktaCallReport(avyuktaCallCallection, empID, startOfDay, endOfDay)
 		attendee, totalAttendees := getAttendeeCounts(name, startOfDay, endOfDay)
 		sales := getSalesReport(name, startOfDay, endOfDay)
 		yearSale := getSalesReportByYear(name)
@@ -391,12 +391,12 @@ func DayByReportEveryStaff(c *fiber.Ctx) error {
 	return c.JSON(finalReport)
 }
 
-func getAvyuktaCallReport(callLogsCollection *mongo.Collection, EmployeeName string, start, end time.Time) ReportBlock {
+func getAvyuktaCallReport(callLogsCollection *mongo.Collection, employeeID string, start, end time.Time) ReportBlock {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	filter := bson.M{
-		"full_name": EmployeeName,
+		"employeeid": employeeID,
 		"call_date": bson.M{
 			"$gte": start,
 			"$lte": end,
