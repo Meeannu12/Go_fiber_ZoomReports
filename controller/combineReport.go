@@ -32,10 +32,12 @@ type StaffReport struct {
 	Branch            string                    `json:"branch"`
 	EmployeeID        string                    `json:"employeeId"`
 	Profile           string                    `json:"profile"`
+	Device            bool                      `bson:"device" json:"device"`
 	Attendee          int                       `json:"attendee"`
 	TotalAttendee     int                       `json:"totalAttendees"`
 	Sales             map[string]int            `json:"sales"`
 	YearSale          map[string]map[string]int `json:"yearSale"`
+	CRMSales          map[string]int            `json:crmSales`
 	DilerReport       ReportBlock               `json:"dilerReport"`
 	CRMReport         ReportBlock               `json:"crmReport"`
 	AdvisorReport     ReportBlock               `json:"advisorReport"`
@@ -125,23 +127,9 @@ func GetCombineReport(c *fiber.Ctx) error {
 		"device":     1,
 	})
 
-	// Filter: exclude role = "block"
-	// filter := bson.M{
-	// 	"role": bson.M{
-	// 		"$ne": "block", // not equal
-	// 	},
-	// }
-
 	filter := bson.M{
 		"role": "user",
 	}
-
-	// filter := bson.M{
-	// 	"$and": []bson.M{
-	// 		{"role": bson.M{"$ne": "block"}},
-	// 		{"profile": bson.M{"$ne": "admin"}},
-	// 	},
-	// }
 
 	cursor, err := staffCollection.Find(ctx, filter, findOptions)
 
@@ -218,6 +206,7 @@ func GetCombineReport(c *fiber.Ctx) error {
 		avyuktaReport := getAvyuktaCallReport(avyuktaCallCallection, empID, startOfDay, endOfDay)
 		attendee, totalAttendees := getAttendeeCounts(name, startOfDay, endOfDay)
 		sales := getSalesReport(name, startOfDay, endOfDay)
+		crmSales := getCRMSalesReport(name, startOfDay, endOfDay)
 		yearSale := getSalesReportByYear(name)
 
 		finalReport = append(finalReport, StaffReport{
@@ -225,10 +214,12 @@ func GetCombineReport(c *fiber.Ctx) error {
 			Branch:            branch,
 			EmployeeID:        empID,
 			Profile:           profile,
+			Device:            device,
 			Attendee:          attendee,
 			TotalAttendee:     totalAttendees,
 			Sales:             sales,
 			YearSale:          yearSale,
+			CRMSales:          crmSales,
 			DilerReport:       dilerReport,
 			CRMReport:         crmReport,
 			AdvisorReport:     advisorReport,
@@ -766,47 +757,6 @@ func getDailyAvyuktaCallSummary(collection *mongo.Collection, fullName string, s
 	return fullResults, nil
 }
 
-// func getAllAttendeeCount(name string, start, end time.Time) int {
-// 	collection := config.GetCollection("ZoomDB", "attendees") // change this to your actual collection name
-
-// 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-// 	defer cancel()
-
-// 	filter := bson.M{
-// 		"Team": name,
-// 		"Date": bson.M{
-// 			"$gte": start,
-// 			"$lte": end,
-// 		},
-// 	}
-
-// 	cursor, err := collection.Find(ctx, filter)
-// 	if err != nil {
-// 		fmt.Println("Error fetching data:", err)
-// 		return 0
-// 	}
-// 	defer cursor.Close(ctx)
-
-// 	var results []bson.M
-// 	if err := cursor.All(ctx, &results); err != nil {
-// 		fmt.Println("Error decoding data:", err)
-// 		return 0
-// 	}
-
-// 	total := 0
-// 	for _, doc := range results {
-// 		if val, ok := doc["Attendees"].(int32); ok {
-// 			total += int(val)
-// 		} else if val, ok := doc["Attendees"].(int64); ok {
-// 			total += int(val)
-// 		} else if val, ok := doc["Attendees"].(float64); ok {
-// 			total += int(val)
-// 		}
-// 	}
-
-// 	return total
-// }
-
 func getAttendeeCounts(team string, start, end time.Time) (int, int) {
 	collection := config.GetCollection("ZoomDB", "attendees")
 
@@ -1044,6 +994,60 @@ func getSalesReport(name string, start, end time.Time) map[string]int {
 			"$gte": start,
 			"$lte": end,
 		},
+		// Only documents where L1 or L2/L3 CONTAINS the name
+		"$or": []bson.M{
+			{"L1": bson.M{"$regex": name, "$options": "i"}},
+			{"L2/L3": bson.M{"$regex": name, "$options": "i"}},
+		},
+	}
+
+	cursor, err := collection.Find(ctx, filter)
+	if err != nil {
+		fmt.Println("Error fetching:", err)
+		return nil
+	}
+	defer cursor.Close(ctx)
+
+	var results []SalesLead
+	if err := cursor.All(ctx, &results); err != nil {
+		fmt.Println("Decode error:", err)
+		return nil
+	}
+
+	count := map[string]int{
+		"L1":   0,
+		"L2L3": 0,
+	}
+
+	for _, r := range results {
+
+		// If L1 contains given name
+		if strings.Contains(strings.ToLower(r.L1), strings.ToLower(name)) {
+			count["L1"]++
+		}
+
+		// If L2/L3 contains given name
+		if strings.Contains(strings.ToLower(r.L2L3), strings.ToLower(name)) {
+			count["L2L3"]++
+		}
+	}
+
+	return count
+}
+
+func getCRMSalesReport(name string, start, end time.Time) map[string]int {
+
+	collection := config.GetCollection("ZoomDB", "salesleads")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	// Date filter
+	filter := bson.M{
+		"Date of Enrollment": bson.M{
+			"$gte": start,
+			"$lte": end,
+		},
+		"Source": "CRM", // <-- new condition
 		// Only documents where L1 or L2/L3 CONTAINS the name
 		"$or": []bson.M{
 			{"L1": bson.M{"$regex": name, "$options": "i"}},
