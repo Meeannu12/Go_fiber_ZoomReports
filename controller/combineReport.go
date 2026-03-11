@@ -37,7 +37,8 @@ type StaffReport struct {
 	TotalAttendee     int                       `json:"totalAttendees"`
 	Sales             map[string]int            `json:"sales"`
 	YearSale          map[string]map[string]int `json:"yearSale"`
-	CRMSales          map[string]int            `json:crmSales`
+	CRMSales          map[string]int            `json:"crmSales"`
+	CRMLeadsCount     int64                     `json:"crmLeadCount"`
 	DilerReport       ReportBlock               `json:"dilerReport"`
 	CRMReport         ReportBlock               `json:"crmReport"`
 	AdvisorReport     ReportBlock               `json:"advisorReport"`
@@ -114,6 +115,7 @@ func GetCombineReport(c *fiber.Ctx) error {
 	staffCollection := config.GetCollection("ZoomDB", "staffs")
 	callLogsCollection := config.GetCollection("ZoomDB", "calllogs")
 	avyuktaCallCallection := config.GetCollection("ZoomDB", "avyuktacalls")
+	crmleadsCollection := config.GetCollection("ZoomDB", "crmleads")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -205,6 +207,7 @@ func GetCombineReport(c *fiber.Ctx) error {
 		officeCallReport := getOfficePhoneCallReport(callLogsCollection, empID, device, officePhone, startOfDay, endOfDay)
 		avyuktaReport := getAvyuktaCallReport(avyuktaCallCallection, empID, startOfDay, endOfDay)
 		attendee, totalAttendees := getAttendeeCounts(name, startOfDay, endOfDay)
+		crmLeadCount, _ := getCRMWebNewLeadCountByEmployee(crmleadsCollection, empID)
 		sales := getSalesReport(name, startOfDay, endOfDay)
 		crmSales := getCRMSalesReport(name, startOfDay, endOfDay)
 		yearSale := getSalesReportByYear(name)
@@ -220,6 +223,7 @@ func GetCombineReport(c *fiber.Ctx) error {
 			Sales:             sales,
 			YearSale:          yearSale,
 			CRMSales:          crmSales,
+			CRMLeadsCount:     crmLeadCount,
 			DilerReport:       dilerReport,
 			CRMReport:         crmReport,
 			AdvisorReport:     advisorReport,
@@ -1087,6 +1091,35 @@ func getCRMSalesReport(name string, start, end time.Time) map[string]int {
 	}
 
 	return count
+}
+
+func getCRMWebNewLeadCountByEmployee(collection *mongo.Collection, employeeID string) (int64, error) {
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// convert string → int
+	empID, err := strconv.Atoi(employeeID)
+	if err != nil {
+		return 0, fmt.Errorf("invalid employee id: %v", err)
+	}
+
+	// filter
+	filter := bson.M{
+		"employeeid": empID,
+		"lead":       "new",
+		"lead source": bson.M{
+			"$regex":   "web",
+			"$options": "i",
+		},
+	}
+
+	count, err := collection.CountDocuments(ctx, filter)
+	if err != nil {
+		return 0, err
+	}
+
+	return count, nil
 }
 
 func getSalesReportByYear(name string) map[string]map[string]int {
