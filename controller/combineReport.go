@@ -1246,25 +1246,46 @@ func (c *crmLeadsController) GetCRMLeadsNumbersByEmployeeID(employeeID string) (
 		return nil, err
 	}
 
-	// fmt.Println(results)
+	// 👇 All possible phone fields
+	phoneFields := []string{"mobile", "home phone", "phone number"}
 
 	// Loop through results and get mobile numbers
 	var mobileNumbers []string
 	for _, doc := range results {
-		if val, ok := doc["mobile"]; ok {
-			switch v := val.(type) {
-			case int:
-				mobileNumbers = append(mobileNumbers, fmt.Sprintf("%d", v))
-			case int32:
-				mobileNumbers = append(mobileNumbers, fmt.Sprintf("%d", v))
-			case int64:
-				mobileNumbers = append(mobileNumbers, fmt.Sprintf("%d", v))
-			case float64:
-				mobileNumbers = append(mobileNumbers, fmt.Sprintf("%.0f", v))
-			case string:
-				mobileNumbers = append(mobileNumbers, v)
+
+		for _, field := range phoneFields {
+
+			if val, ok := doc[field]; ok {
+				switch v := val.(type) {
+				case int:
+					mobileNumbers = append(mobileNumbers, fmt.Sprintf("%d", v))
+				case int32:
+					mobileNumbers = append(mobileNumbers, fmt.Sprintf("%d", v))
+				case int64:
+					mobileNumbers = append(mobileNumbers, fmt.Sprintf("%d", v))
+				case float64:
+					mobileNumbers = append(mobileNumbers, fmt.Sprintf("%.0f", v))
+				case string:
+					if v != "" {
+						mobileNumbers = append(mobileNumbers, v)
+					}
+				}
 			}
 		}
+		// if val, ok := doc["mobile"]; ok {
+		// 	switch v := val.(type) {
+		// 	case int:
+		// 		mobileNumbers = append(mobileNumbers, fmt.Sprintf("%d", v))
+		// 	case int32:
+		// 		mobileNumbers = append(mobileNumbers, fmt.Sprintf("%d", v))
+		// 	case int64:
+		// 		mobileNumbers = append(mobileNumbers, fmt.Sprintf("%d", v))
+		// 	case float64:
+		// 		mobileNumbers = append(mobileNumbers, fmt.Sprintf("%.0f", v))
+		// 	case string:
+		// 		mobileNumbers = append(mobileNumbers, v)
+		// 	}
+		// }
 	}
 
 	// Optional: remove duplicates
@@ -1330,19 +1351,30 @@ func (c *DialerLeadsController) GetDialerLeadsNumbersByEmployeeID(employeeID str
 	}
 	defer cursor.Close(ctx)
 
-	// fmt.Println(cursor)
-
 	var results []bson.M
 	if err := cursor.All(ctx, &results); err != nil {
 		return nil, err
 	}
 
-	// Extract all mobile numbers
+	// 👇 all fields jo check karne hain
+	phoneFields := []string{"mobile", "home phone", "phone number"}
+
+	// Extract all numbers
 	var mobileNumbers []string
 	for _, doc := range results {
-		if val, ok := doc["mobile"]; ok {
-			mobileNumbers = append(mobileNumbers, fmt.Sprintf("%v", val))
+		for _, field := range phoneFields {
+			if val, ok := doc[field]; ok {
+				strVal := fmt.Sprintf("%v", val)
+
+				// optional: empty check
+				if strVal != "" && strVal != "<nil>" {
+					mobileNumbers = append(mobileNumbers, strVal)
+				}
+			}
 		}
+		// if val, ok := doc["mobile"]; ok {
+		// 	mobileNumbers = append(mobileNumbers, fmt.Sprintf("%v", val))
+		// }
 	}
 
 	// Optional: remove duplicates
