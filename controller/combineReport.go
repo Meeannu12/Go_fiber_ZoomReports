@@ -39,6 +39,7 @@ type StaffReport struct {
 	YearSale          map[string]map[string]int `json:"yearSale"`
 	CRMSales          map[string]int            `json:"crmSales"`
 	CRMLeadsCount     int64                     `json:"crmLeadCount"`
+	Ov                int64                     `json:"ov"`
 	DilerReport       ReportBlock               `json:"dilerReport"`
 	CRMReport         ReportBlock               `json:"crmReport"`
 	AdvisorReport     ReportBlock               `json:"advisorReport"`
@@ -210,6 +211,7 @@ func GetCombineReport(c *fiber.Ctx) error {
 		crmLeadCount, _ := getCRMWebNewLeadCountByEmployee(crmleadsCollection, empID)
 		sales := getSalesReport(name, startOfDay, endOfDay)
 		crmSales := getCRMSalesReport(name, startOfDay, endOfDay)
+		ov, _ := getOfficeVisit(name, startOfDay, endOfDay)
 		yearSale := getSalesReportByYear(name)
 
 		finalReport = append(finalReport, StaffReport{
@@ -222,6 +224,7 @@ func GetCombineReport(c *fiber.Ctx) error {
 			TotalAttendee:     totalAttendees,
 			Sales:             sales,
 			YearSale:          yearSale,
+			Ov:                ov,
 			CRMSales:          crmSales,
 			CRMLeadsCount:     crmLeadCount,
 			DilerReport:       dilerReport,
@@ -359,6 +362,7 @@ func DayByReportEveryStaff(c *fiber.Ctx) error {
 		intrested, totalIntrested := getIntrestedCounts(name, startOfDay, endOfDay)
 		registration, totalRegistration := getRegistrationCounts(name, startOfDay, endOfDay)
 		sales := getSalesReport(name, startOfDay, endOfDay)
+
 		yearSale := getSalesReportByYear(name)
 
 		finalReport = append(finalReport, StaffDailyReport{
@@ -1091,6 +1095,42 @@ func getCRMSalesReport(name string, start, end time.Time) map[string]int {
 	}
 
 	return count
+}
+
+func getOfficeVisit(name string, start, end time.Time) (int64, error) {
+
+	collection := config.GetCollection("ZoomDB", "salesleads")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	// Date filter
+	filter := bson.M{
+		"Date of Enrollment": bson.M{
+			"$gte": start,
+			"$lte": end,
+		},
+		"$and": []bson.M{
+			{
+				"L2/L3": bson.M{
+					"$regex":   name,
+					"$options": "i",
+				},
+			},
+			{
+				"L2/L3": bson.M{
+					"$regex":   "OV",
+					"$options": "i",
+				},
+			},
+		},
+	}
+
+	count, err := collection.CountDocuments(ctx, filter)
+	if err != nil {
+		return 0, err
+	}
+
+	return count, nil
 }
 
 func getCRMWebNewLeadCountByEmployee(collection *mongo.Collection, employeeID string) (int64, error) {
