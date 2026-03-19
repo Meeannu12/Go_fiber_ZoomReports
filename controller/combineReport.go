@@ -40,6 +40,7 @@ type StaffReport struct {
 	CRMSales          map[string]int            `json:"crmSales"`
 	CRMLeadsCount     int64                     `json:"crmLeadCount"`
 	Ov                int64                     `json:"ov"`
+	Tov               int64                     `json:"tov"`
 	DilerReport       ReportBlock               `json:"dilerReport"`
 	CRMReport         ReportBlock               `json:"crmReport"`
 	AdvisorReport     ReportBlock               `json:"advisorReport"`
@@ -52,6 +53,7 @@ type StaffDailyReport struct {
 	Branch            string                    `json:"branch"`
 	EmployeeID        string                    `json:"employeeId"`
 	Profile           string                    `json:"profile"`
+	Device            bool                      `bson:"device" json:"device"`
 	Attendee          int                       `json:"attendee"`
 	TotalAttendee     int                       `json:"totalAttendees"`
 	Registration      int                       `json:"registration"`
@@ -59,11 +61,16 @@ type StaffDailyReport struct {
 	Intrested         int                       `json:"intrested"`
 	TotalIntrested    int                       `json:"totalIntrested"`
 	Sales             map[string]int            `json:"sales"`
-	DilerReport       []EveryDayReport          `json:"dilerReport"`
 	YearSale          map[string]map[string]int `json:"yearSale"`
+	CRMSales          map[string]int            `json:"crmSales"`
+	CRMLeadsCount     int64                     `json:"crmLeadCount"`
+	Ov                int64                     `json:"ov"`
+	Tov               int64                     `json:"tov"`
+	DilerReport       []EveryDayReport          `json:"dilerReport"`
 	CRMReport         []EveryDayReport          `json:"crmReport"`
 	AdvisorReport     []EveryDayReport          `json:"advisorReport"`
 	AvyuktaReport     []EveryDayReport          `json:"avyuktaReport"`
+	OfficePhoneReport ReportBlock               `json:"officeCallReport"`
 }
 
 type EveryDayReport struct {
@@ -212,6 +219,7 @@ func GetCombineReport(c *fiber.Ctx) error {
 		sales := getSalesReport(name, startOfDay, endOfDay)
 		crmSales := getCRMSalesReport(name, startOfDay, endOfDay)
 		ov, _ := getOfficeVisit(name, startOfDay, endOfDay)
+		tov, _ := getTotalOfficeVisit(name, startOfDay, endOfDay)
 		yearSale := getSalesReportByYear(name)
 
 		finalReport = append(finalReport, StaffReport{
@@ -225,6 +233,7 @@ func GetCombineReport(c *fiber.Ctx) error {
 			Sales:             sales,
 			YearSale:          yearSale,
 			Ov:                ov,
+			Tov:               tov,
 			CRMSales:          crmSales,
 			CRMLeadsCount:     crmLeadCount,
 			DilerReport:       dilerReport,
@@ -266,6 +275,7 @@ func DayByReportEveryStaff(c *fiber.Ctx) error {
 	staffCollection := config.GetCollection("ZoomDB", "staffs")
 	callLogsCollection := config.GetCollection("ZoomDB", "calllogs")
 	avyuktaCallLogs := config.GetCollection("ZoomDB", "avyuktacalls")
+	crmleadsCollection := config.GetCollection("ZoomDB", "crmleads")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -316,6 +326,7 @@ func DayByReportEveryStaff(c *fiber.Ctx) error {
 		name := s.Name
 		branch := s.Branch
 		profile := s.Profile
+		device := s.Device
 
 		var (
 			advisingNumbers []string
@@ -352,17 +363,26 @@ func DayByReportEveryStaff(c *fiber.Ctx) error {
 		// Optional: remove duplicates
 		allNumbers = removeDuplicates(allNumbers)
 
+		officePhone := append(allNumbers, advisingNumbers...)
+		officePhone = append(officePhone, crmNumbers...)
+
+		officePhone = removeDuplicates(officePhone)
+
 		// ✅ Calculate each report section
 		dilerReport, _ := getDailyCallReport(callLogsCollection, empID, allNumbers, startOfDay, endOfDay)
 		crmReport, _ := getDailyCallReport(callLogsCollection, empID, crmNumbers, startOfDay, endOfDay)
 		advisorReport, _ := getDailyCallReport(callLogsCollection, empID, advisingNumbers, startOfDay, endOfDay)
+		officeCallReport := getOfficePhoneCallReport(callLogsCollection, empID, device, officePhone, startOfDay, endOfDay)
 		avyuktaReport, _ := getDailyAvyuktaCallSummary(avyuktaCallLogs, name, startOfDay, endOfDay)
 		// attendee := getAllAttendeeCount(name, startOfDay, endOfDay)
 		attendee, totalAttendees := getAttendeeCounts(name, startOfDay, endOfDay)
+		crmLeadCount, _ := getCRMWebNewLeadCountByEmployee(crmleadsCollection, empID)
 		intrested, totalIntrested := getIntrestedCounts(name, startOfDay, endOfDay)
 		registration, totalRegistration := getRegistrationCounts(name, startOfDay, endOfDay)
 		sales := getSalesReport(name, startOfDay, endOfDay)
-
+		crmSales := getCRMSalesReport(name, startOfDay, endOfDay)
+		ov, _ := getOfficeVisit(name, startOfDay, endOfDay)
+		tov, _ := getTotalOfficeVisit(name, startOfDay, endOfDay)
 		yearSale := getSalesReportByYear(name)
 
 		finalReport = append(finalReport, StaffDailyReport{
@@ -370,6 +390,7 @@ func DayByReportEveryStaff(c *fiber.Ctx) error {
 			Branch:            branch,
 			EmployeeID:        empID,
 			Profile:           profile,
+			Device:            device,
 			Attendee:          attendee,
 			TotalAttendee:     totalAttendees,
 			Registration:      registration,
@@ -378,10 +399,15 @@ func DayByReportEveryStaff(c *fiber.Ctx) error {
 			TotalIntrested:    totalIntrested,
 			Sales:             sales,
 			YearSale:          yearSale,
+			Ov:                ov,
+			Tov:               tov,
+			CRMSales:          crmSales,
+			CRMLeadsCount:     crmLeadCount,
 			DilerReport:       dilerReport,
 			CRMReport:         crmReport,
 			AdvisorReport:     advisorReport,
 			AvyuktaReport:     avyuktaReport,
+			OfficePhoneReport: officeCallReport,
 		})
 	}
 
@@ -1123,6 +1149,33 @@ func getOfficeVisit(name string, start, end time.Time) (int64, error) {
 				},
 			},
 		},
+	}
+
+	count, err := collection.CountDocuments(ctx, filter)
+	if err != nil {
+		return 0, err
+	}
+
+	return count, nil
+}
+
+func getTotalOfficeVisit(name string, start, end time.Time) (int64, error) {
+
+	collection := config.GetCollection("ZoomDB", "officevisits")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	// Date filter
+	filter := bson.M{
+		"Date": bson.M{
+			"$gte": start,
+			"$lte": end,
+		},
+		"Fixed For": bson.M{
+			"$regex":   name,
+			"$options": "i",
+		},
+		// "Fixed For": name,
 	}
 
 	count, err := collection.CountDocuments(ctx, filter)
