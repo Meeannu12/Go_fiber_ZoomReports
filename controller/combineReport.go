@@ -289,6 +289,7 @@ func DayByReportEveryStaff(c *fiber.Ctx) error {
 		"name":       1,
 		"branch":     1,
 		"profile":    1,
+		"device":     1,
 	})
 
 	// Filter: exclude role = "block"
