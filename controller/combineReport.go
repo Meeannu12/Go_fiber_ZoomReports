@@ -65,6 +65,7 @@ type StaffDailyReport struct {
 	YearSale          map[string]map[string]int `json:"yearSale"`
 	CRMSales          map[string]int            `json:"crmSales"`
 	CRMLeadsCount     int64                     `json:"crmLeadCount"`
+	TotalCrmLeadCount int64                     `json:"totalCrmLeadCount"`
 	Ov                int64                     `json:"ov"`
 	Tov               int64                     `json:"tov"`
 	DilerReport       []EveryDayReport          `json:"dilerReport"`
@@ -292,13 +293,6 @@ func DayByReportEveryStaff(c *fiber.Ctx) error {
 		"device":     1,
 	})
 
-	// Filter: exclude role = "block"
-	// filter := bson.M{
-	// 	"role": bson.M{
-	// 		"$ne": "block", // not equal
-	// 	},
-	// }
-
 	filter := bson.M{
 		"role": "user",
 	}
@@ -381,6 +375,7 @@ func DayByReportEveryStaff(c *fiber.Ctx) error {
 		// attendee := getAllAttendeeCount(name, startOfDay, endOfDay)
 		attendee, totalAttendees := getAttendeeCounts(name, startOfDay, endOfDay)
 		crmLeadCount, _ := getCRMWebNewLeadCountByEmployee(crmleadsCollection, empID)
+		totalCrmLeadCount, _ := getCRMTotalNewLeadCountByEmployee(crmleadsCollection, empID)
 		intrested, totalIntrested := getIntrestedCounts(name, startOfDay, endOfDay)
 		registration, totalRegistration := getRegistrationCounts(name, startOfDay, endOfDay)
 		sales := getSalesReport(name, startOfDay, endOfDay)
@@ -407,6 +402,7 @@ func DayByReportEveryStaff(c *fiber.Ctx) error {
 			Tov:               tov,
 			CRMSales:          crmSales,
 			CRMLeadsCount:     crmLeadCount,
+			TotalCrmLeadCount: totalCrmLeadCount,
 			DilerReport:       dilerReport,
 			CRMReport:         crmReport,
 			AdvisorReport:     advisorReport,
