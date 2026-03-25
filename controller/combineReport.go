@@ -39,6 +39,7 @@ type StaffReport struct {
 	YearSale          map[string]map[string]int `json:"yearSale"`
 	CRMSales          map[string]int            `json:"crmSales"`
 	CRMLeadsCount     int64                     `json:"crmLeadCount"`
+	TotalCrmLeadCount int64                     `json:"totalCrmLeadCount"`
 	Ov                int64                     `json:"ov"`
 	Tov               int64                     `json:"tov"`
 	DilerReport       ReportBlock               `json:"dilerReport"`
@@ -216,6 +217,7 @@ func GetCombineReport(c *fiber.Ctx) error {
 		avyuktaReport := getAvyuktaCallReport(avyuktaCallCallection, empID, startOfDay, endOfDay)
 		attendee, totalAttendees := getAttendeeCounts(name, startOfDay, endOfDay)
 		crmLeadCount, _ := getCRMWebNewLeadCountByEmployee(crmleadsCollection, empID)
+		totalCrmLeadCount, _ := getCRMTotalNewLeadCountByEmployee(crmleadsCollection, empID)
 		sales := getSalesReport(name, startOfDay, endOfDay)
 		crmSales := getCRMSalesReport(name, startOfDay, endOfDay)
 		ov, _ := getOfficeVisit(name, startOfDay, endOfDay)
@@ -236,6 +238,7 @@ func GetCombineReport(c *fiber.Ctx) error {
 			Tov:               tov,
 			CRMSales:          crmSales,
 			CRMLeadsCount:     crmLeadCount,
+			TotalCrmLeadCount: totalCrmLeadCount,
 			DilerReport:       dilerReport,
 			CRMReport:         crmReport,
 			AdvisorReport:     advisorReport,
@@ -1205,6 +1208,35 @@ func getCRMWebNewLeadCountByEmployee(collection *mongo.Collection, employeeID st
 			"$regex":   "web",
 			"$options": "i",
 		},
+	}
+
+	count, err := collection.CountDocuments(ctx, filter)
+	if err != nil {
+		return 0, err
+	}
+
+	return count, nil
+}
+
+func getCRMTotalNewLeadCountByEmployee(collection *mongo.Collection, employeeID string) (int64, error) {
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// convert string → int
+	empID, err := strconv.Atoi(employeeID)
+	if err != nil {
+		return 0, fmt.Errorf("invalid employee id: %v", err)
+	}
+
+	// filter
+	filter := bson.M{
+		"employeeid": empID,
+		"lead":       "new",
+		// "lead source": bson.M{
+		// 	"$regex":   "web",
+		// 	"$options": "i",
+		// },
 	}
 
 	count, err := collection.CountDocuments(ctx, filter)
