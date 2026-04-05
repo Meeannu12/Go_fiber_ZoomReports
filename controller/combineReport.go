@@ -1069,23 +1069,96 @@ func getSalesReport(name string, start, end time.Time) map[string]int {
 	return count
 }
 
+// func getCRMSalesReport(name string, start, end time.Time) map[string]int {
+
+// 	collection := config.GetCollection("ZoomDB", "salesleads")
+
+// 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+// 	defer cancel()
+// 	// Date filter
+// 	filter := bson.M{
+// 		"Date of Enrollment": bson.M{
+// 			"$gte": start,
+// 			"$lte": end,
+// 		},
+// 		// "Source": "CRM", // <-- new condition
+// 		// Only documents where L1 or L2/L3 CONTAINS the name
+// 		"$or": []bson.M{
+// 			{"L1": bson.M{
+// 				// "$regex": name,
+// 				// "$options": "i"
+// 				"$regex":   name + ".*CRM",
+// 				"$options": "i",
+// 			}},
+// 			{"L2/L3": bson.M{
+// 				// "$regex": name,
+// 				// "$options": "i",
+// 				"$regex":   name + ".*CRM",
+// 				"$options": "i",
+// 			}},
+// 		},
+// 	}
+
+// 	cursor, err := collection.Find(ctx, filter)
+// 	if err != nil {
+// 		fmt.Println("Error fetching:", err)
+// 		return nil
+// 	}
+// 	defer cursor.Close(ctx)
+
+// 	var results []SalesLead
+// 	if err := cursor.All(ctx, &results); err != nil {
+// 		fmt.Println("Decode error:", err)
+// 		return nil
+// 	}
+
+// 	count := map[string]int{
+// 		"L1":   0,
+// 		"L2L3": 0,
+// 	}
+
+// 	for _, r := range results {
+
+// 		// If L1 contains given name
+// 		if strings.Contains(strings.ToLower(r.L1), strings.ToLower(name)) {
+// 			count["L1"]++
+// 		}
+
+// 		// If L2/L3 contains given name
+// 		if strings.Contains(strings.ToLower(r.L2L3), strings.ToLower(name)) {
+// 			count["L2L3"]++
+// 		}
+// 	}
+
+// 	return count
+// }
+
 func getCRMSalesReport(name string, start, end time.Time) map[string]int {
 
 	collection := config.GetCollection("ZoomDB", "salesleads")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	// Date filter
+
+	// ✅ STEP 1: DB filter me sirf NAME match karo (CRM mat lagao yaha)
 	filter := bson.M{
 		"Date of Enrollment": bson.M{
 			"$gte": start,
 			"$lte": end,
 		},
-		"Source": "CRM", // <-- new condition
-		// Only documents where L1 or L2/L3 CONTAINS the name
 		"$or": []bson.M{
-			{"L1": bson.M{"$regex": name, "$options": "i"}},
-			{"L2/L3": bson.M{"$regex": name, "$options": "i"}},
+			{
+				"L1": bson.M{
+					"$regex":   name,
+					"$options": "i",
+				},
+			},
+			{
+				"L2/L3": bson.M{
+					"$regex":   name,
+					"$options": "i",
+				},
+			},
 		},
 	}
 
@@ -1107,15 +1180,45 @@ func getCRMSalesReport(name string, start, end time.Time) map[string]int {
 		"L2L3": 0,
 	}
 
+	// 🔥 HELPER FUNCTION (IMPORTANT)
+	isValidCRMMatch := func(fullString string, name string) bool {
+
+		if fullString == "" {
+			return false
+		}
+		parts := strings.Split(fullString, "/")
+
+		name = strings.ToLower(strings.TrimSpace(name))
+
+		for _, part := range parts {
+			p := strings.ToLower(strings.TrimSpace(part))
+
+			// ✅ Check: name isi segment me ho
+			if strings.Contains(p, name) {
+
+				// ✅ Check: CRM bhi isi segment me ho
+				if strings.Contains(p, "crm") {
+					return true
+				}
+
+				// ❌ name mila but CRM nahi → reject
+				return false
+			}
+		}
+
+		return false
+	}
+
+	// 🔥 STEP 2: Accurate counting
 	for _, r := range results {
 
-		// If L1 contains given name
-		if strings.Contains(strings.ToLower(r.L1), strings.ToLower(name)) {
+		// ✅ L1 check (correct logic)
+		if isValidCRMMatch(r.L1, name) {
 			count["L1"]++
 		}
 
-		// If L2/L3 contains given name
-		if strings.Contains(strings.ToLower(r.L2L3), strings.ToLower(name)) {
+		// ✅ L2/L3 check (correct logic)
+		if isValidCRMMatch(r.L2L3, name) {
 			count["L2L3"]++
 		}
 	}
