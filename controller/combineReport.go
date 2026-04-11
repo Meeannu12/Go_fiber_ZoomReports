@@ -33,6 +33,7 @@ type StaffReport struct {
 	EmployeeID        string                    `json:"employeeId"`
 	Profile           string                    `json:"profile"`
 	Device            bool                      `bson:"device" json:"device"`
+	CallCount         int64                     `json:"callCount"`
 	Attendee          int                       `json:"attendee"`
 	TotalAttendee     int                       `json:"totalAttendees"`
 	Sales             map[string]int            `json:"sales"`
@@ -55,6 +56,7 @@ type StaffDailyReport struct {
 	EmployeeID        string                    `json:"employeeId"`
 	Profile           string                    `json:"profile"`
 	Device            bool                      `bson:"device" json:"device"`
+	CallCount         int64                     `json:"callCount"`
 	Attendee          int                       `json:"attendee"`
 	TotalAttendee     int                       `json:"totalAttendees"`
 	Registration      int                       `json:"registration"`
@@ -224,6 +226,7 @@ func GetCombineReport(c *fiber.Ctx) error {
 		ov, _ := getOfficeVisit(name, startOfDay, endOfDay)
 		tov, _ := getTotalOfficeVisit(name, startOfDay, endOfDay)
 		yearSale := getSalesReportByYear(name)
+		callCount, _ := getCallLogsCount(empID, name, officePhone, device, startOfDay, endOfDay)
 
 		finalReport = append(finalReport, StaffReport{
 			Name:              name,
@@ -231,6 +234,7 @@ func GetCombineReport(c *fiber.Ctx) error {
 			EmployeeID:        empID,
 			Profile:           profile,
 			Device:            device,
+			CallCount:         callCount,
 			Attendee:          attendee,
 			TotalAttendee:     totalAttendees,
 			Sales:             sales,
@@ -383,6 +387,7 @@ func DayByReportEveryStaff(c *fiber.Ctx) error {
 		ov, _ := getOfficeVisit(name, startOfDay, endOfDay)
 		tov, _ := getTotalOfficeVisit(name, startOfDay, endOfDay)
 		yearSale := getSalesReportByYear(name)
+		callCount, _ := getCallLogsCount(empID, name, officePhone, device, startOfDay, endOfDay)
 
 		finalReport = append(finalReport, StaffDailyReport{
 			Name:              name,
@@ -390,6 +395,7 @@ func DayByReportEveryStaff(c *fiber.Ctx) error {
 			EmployeeID:        empID,
 			Profile:           profile,
 			Device:            device,
+			CallCount:         callCount,
 			Attendee:          attendee,
 			TotalAttendee:     totalAttendees,
 			Registration:      registration,
@@ -678,18 +684,6 @@ func getDailyCallReport(callLogsCollection *mongo.Collection, employeeID string,
 		return nil, err
 	}
 	defer cursor.Close(ctx)
-
-	// var results []EveryDayReport
-	// if err := cursor.All(ctx, &results); err != nil {
-	// 	return nil, err
-	// }
-
-	// // Rename _id → Date (if needed)
-	// for i := range results {
-	// 	results[i].Date = results[i].Date // already mapped via bson tag
-	// }
-
-	// return results, nil
 
 	var aggResults []EveryDayReport
 	if err := cursor.All(ctx, &aggResults); err != nil {
@@ -1069,69 +1063,62 @@ func getSalesReport(name string, start, end time.Time) map[string]int {
 	return count
 }
 
-// func getCRMSalesReport(name string, start, end time.Time) map[string]int {
+func getCallLogsCount(staffId string, staffName string, numberArray []string, device bool, start, end time.Time) (int64, error) {
 
-// 	collection := config.GetCollection("ZoomDB", "salesleads")
+	collection := config.GetCollection("ZoomDB", "calllogs")
+	avyuktaCollection := config.GetCollection("ZoomDB", "avyuktacalls")
 
-// 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-// 	defer cancel()
-// 	// Date filter
-// 	filter := bson.M{
-// 		"Date of Enrollment": bson.M{
-// 			"$gte": start,
-// 			"$lte": end,
-// 		},
-// 		// "Source": "CRM", // <-- new condition
-// 		// Only documents where L1 or L2/L3 CONTAINS the name
-// 		"$or": []bson.M{
-// 			{"L1": bson.M{
-// 				// "$regex": name,
-// 				// "$options": "i"
-// 				"$regex":   name + ".*CRM",
-// 				"$options": "i",
-// 			}},
-// 			{"L2/L3": bson.M{
-// 				// "$regex": name,
-// 				// "$options": "i",
-// 				"$regex":   name + ".*CRM",
-// 				"$options": "i",
-// 			}},
-// 		},
-// 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-// 	cursor, err := collection.Find(ctx, filter)
-// 	if err != nil {
-// 		fmt.Println("Error fetching:", err)
-// 		return nil
-// 	}
-// 	defer cursor.Close(ctx)
+	// ---------- First Query (based on device) ----------
+	var filter1 bson.M
 
-// 	var results []SalesLead
-// 	if err := cursor.All(ctx, &results); err != nil {
-// 		fmt.Println("Decode error:", err)
-// 		return nil
-// 	}
+	if device {
+		// All logs for staffId
+		filter1 = bson.M{
+			"employeeId": staffId,
+			"timestamp": bson.M{
+				"$gte": start,
+				"$lte": end,
+			},
+		}
+	} else {
+		// Only selected numbers
+		filter1 = bson.M{
+			"employeeId": staffId,
+			"phoneNumber": bson.M{
+				"$in": numberArray,
+			},
+			"timestamp": bson.M{
+				"$gte": start,
+				"$lte": end,
+			},
+		}
+	}
 
-// 	count := map[string]int{
-// 		"L1":   0,
-// 		"L2L3": 0,
-// 	}
+	count1, err := collection.CountDocuments(ctx, filter1)
+	if err != nil {
+		return 0, err
+	}
 
-// 	for _, r := range results {
+	// ---------- Second Query (by staffName, independent) ----------
+	filter2 := bson.M{
+		"full_name": staffName,
+		"createdAt": bson.M{
+			"$gte": start,
+			"$lte": end,
+		},
+	}
 
-// 		// If L1 contains given name
-// 		if strings.Contains(strings.ToLower(r.L1), strings.ToLower(name)) {
-// 			count["L1"]++
-// 		}
+	count2, err := avyuktaCollection.CountDocuments(ctx, filter2)
+	if err != nil {
+		return 0, err
+	}
 
-// 		// If L2/L3 contains given name
-// 		if strings.Contains(strings.ToLower(r.L2L3), strings.ToLower(name)) {
-// 			count["L2L3"]++
-// 		}
-// 	}
+	return count1 + count2, nil
 
-// 	return count
-// }
+}
 
 func getCRMSalesReport(name string, start, end time.Time) map[string]int {
 
@@ -1497,20 +1484,6 @@ func (c *crmLeadsController) GetCRMLeadsNumbersByEmployeeID(employeeID string) (
 				}
 			}
 		}
-		// if val, ok := doc["mobile"]; ok {
-		// 	switch v := val.(type) {
-		// 	case int:
-		// 		mobileNumbers = append(mobileNumbers, fmt.Sprintf("%d", v))
-		// 	case int32:
-		// 		mobileNumbers = append(mobileNumbers, fmt.Sprintf("%d", v))
-		// 	case int64:
-		// 		mobileNumbers = append(mobileNumbers, fmt.Sprintf("%d", v))
-		// 	case float64:
-		// 		mobileNumbers = append(mobileNumbers, fmt.Sprintf("%.0f", v))
-		// 	case string:
-		// 		mobileNumbers = append(mobileNumbers, v)
-		// 	}
-		// }
 	}
 
 	// Optional: remove duplicates
