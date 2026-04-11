@@ -33,7 +33,7 @@ type StaffReport struct {
 	EmployeeID        string                    `json:"employeeId"`
 	Profile           string                    `json:"profile"`
 	Device            bool                      `bson:"device" json:"device"`
-	CallCount         int64                     `json:"callCount"`
+	// CallCount         int64                     `json:"callCount"`
 	Attendee          int                       `json:"attendee"`
 	TotalAttendee     int                       `json:"totalAttendees"`
 	Sales             map[string]int            `json:"sales"`
@@ -226,7 +226,7 @@ func GetCombineReport(c *fiber.Ctx) error {
 		ov, _ := getOfficeVisit(name, startOfDay, endOfDay)
 		tov, _ := getTotalOfficeVisit(name, startOfDay, endOfDay)
 		yearSale := getSalesReportByYear(name)
-		callCount, _ := getCallLogsCount(empID, name, officePhone, device, startOfDay, endOfDay)
+		// callCount, _ := getCallLogsCount(empID, name, officePhone, device, startOfDay, endOfDay)
 
 		finalReport = append(finalReport, StaffReport{
 			Name:              name,
@@ -234,7 +234,7 @@ func GetCombineReport(c *fiber.Ctx) error {
 			EmployeeID:        empID,
 			Profile:           profile,
 			Device:            device,
-			CallCount:         callCount,
+			// CallCount:         callCount,
 			Attendee:          attendee,
 			TotalAttendee:     totalAttendees,
 			Sales:             sales,
