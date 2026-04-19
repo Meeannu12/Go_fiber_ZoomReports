@@ -28,11 +28,11 @@ type Staff struct {
 }
 
 type StaffReport struct {
-	Name              string                    `json:"name"`
-	Branch            string                    `json:"branch"`
-	EmployeeID        string                    `json:"employeeId"`
-	Profile           string                    `json:"profile"`
-	Device            bool                      `bson:"device" json:"device"`
+	Name       string `json:"name"`
+	Branch     string `json:"branch"`
+	EmployeeID string `json:"employeeId"`
+	Profile    string `json:"profile"`
+	Device     bool   `bson:"device" json:"device"`
 	// CallCount         int64                     `json:"callCount"`
 	Attendee          int                       `json:"attendee"`
 	TotalAttendee     int                       `json:"totalAttendees"`
@@ -229,11 +229,11 @@ func GetCombineReport(c *fiber.Ctx) error {
 		// callCount, _ := getCallLogsCount(empID, name, officePhone, device, startOfDay, endOfDay)
 
 		finalReport = append(finalReport, StaffReport{
-			Name:              name,
-			Branch:            branch,
-			EmployeeID:        empID,
-			Profile:           profile,
-			Device:            device,
+			Name:       name,
+			Branch:     branch,
+			EmployeeID: empID,
+			Profile:    profile,
+			Device:     device,
 			// CallCount:         callCount,
 			Attendee:          attendee,
 			TotalAttendee:     totalAttendees,
@@ -1445,7 +1445,7 @@ func (c *crmLeadsController) GetCRMLeadsNumbersByEmployeeID(employeeID string) (
 	}
 
 	// Find all documents for this employee
-	cursor, err := crmCollection.Find(ctx, bson.M{"employeeid": empIDInt64})
+	cursor, err := crmCollection.Find(ctx, bson.M{"employeeid": empIDInt64, "lead": "new"})
 	if err != nil {
 		return nil, err
 	}
@@ -1543,7 +1543,10 @@ func (c *DialerLeadsController) GetDialerLeadsNumbersByEmployeeID(employeeID str
 	defer cancel()
 
 	// Find all documents for this employee
-	cursor, err := dialerCollection.Find(ctx, bson.M{"employeeid": employeeID})
+	cursor, err := dialerCollection.Find(ctx, bson.M{
+		"employeeid": employeeID,
+		"lead":       "new",
+	})
 	if err != nil {
 		return nil, err
 	}
