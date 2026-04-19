@@ -1445,7 +1445,7 @@ func (c *crmLeadsController) GetCRMLeadsNumbersByEmployeeID(employeeID string) (
 	}
 
 	// Find all documents for this employee
-	cursor, err := crmCollection.Find(ctx, bson.M{"employeeid": empIDInt64, "lead": "new"})
+	cursor, err := crmCollection.Find(ctx, bson.M{"employeeid": empIDInt64})
 	if err != nil {
 		return nil, err
 	}
@@ -1545,7 +1545,6 @@ func (c *DialerLeadsController) GetDialerLeadsNumbersByEmployeeID(employeeID str
 	// Find all documents for this employee
 	cursor, err := dialerCollection.Find(ctx, bson.M{
 		"employeeid": employeeID,
-		"lead":       "new",
 	})
 	if err != nil {
 		return nil, err
