@@ -74,7 +74,7 @@ type StaffDailyReport struct {
 	CRMReport         []EveryDayReport          `json:"crmReport"`
 	AdvisorReport     []EveryDayReport          `json:"advisorReport"`
 	AvyuktaReport     []EveryDayReport          `json:"avyuktaReport"`
-	OfficePhoneReport ReportBlock               `json:"officeCallReport"`
+	OfficePhoneReport []EveryDayReport          `json:"officeCallReport"`
 }
 
 type EveryDayReport struct {
@@ -374,7 +374,7 @@ func DayByReportEveryStaff(c *fiber.Ctx) error {
 		dilerReport, _ := getDailyCallReport(callLogsCollection, empID, allNumbers, startOfDay, endOfDay)
 		crmReport, _ := getDailyCallReport(callLogsCollection, empID, crmNumbers, startOfDay, endOfDay)
 		advisorReport, _ := getDailyCallReport(callLogsCollection, empID, advisingNumbers, startOfDay, endOfDay)
-		officeCallReport := getOfficePhoneCallReport(callLogsCollection, empID, device, officePhone, startOfDay, endOfDay)
+		officeCallReport := getOfficePhoneCallTimeByDate(callLogsCollection, empID, device, officePhone, startOfDay, endOfDay)
 		avyuktaReport, _ := getDailyAvyuktaCallSummary(avyuktaCallLogs, name, startOfDay, endOfDay)
 		// attendee := getAllAttendeeCount(name, startOfDay, endOfDay)
 		attendee, totalAttendees := getAttendeeCounts(name, startOfDay, endOfDay)
@@ -638,6 +638,69 @@ func getOfficePhoneCallReport(callLogsCollection *mongo.Collection, employeeID s
 		FirstCallObject:      firstCall,
 		LastCallObject:       lastCall,
 	}
+}
+
+func getOfficePhoneCallTimeByDate(
+	callLogsCollection *mongo.Collection,
+	employeeID string,
+	device bool,
+	numbers []string,
+	start, end time.Time,
+) []EveryDayReport {
+
+	if !device {
+		return []EveryDayReport{}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	filter := bson.M{
+		"employeeId": employeeID,
+		"timestamp": bson.M{
+			"$gte": start,
+			"$lte": end,
+		},
+		"phoneNumber": bson.M{
+			"$nin": numbers,
+		},
+	}
+
+	pipeline := mongo.Pipeline{
+		{{"$match", filter}},
+		{{
+			"$group", bson.M{
+				"_id": bson.M{
+					"$dateToString": bson.M{
+						"format": "%d-%m-%Y",
+						"date":   "$timestamp",
+					},
+				},
+				"totalTime": bson.M{
+					"$sum": bson.M{
+						"$toInt": "$duration",
+					},
+				},
+			},
+		}},
+		{{"$sort", bson.M{"_id": 1}}},
+	}
+
+	cursor, err := callLogsCollection.Aggregate(ctx, pipeline)
+	if err != nil {
+		fmt.Println("Error fetching report:", err)
+		return []EveryDayReport{}
+	}
+	defer cursor.Close(ctx)
+
+	var reports []EveryDayReport
+
+	if err := cursor.All(ctx, &reports); err != nil {
+		fmt.Println("Error decoding report:", err)
+		return []EveryDayReport{}
+	}
+
+	return reports
 }
 
 func getDailyCallReport(callLogsCollection *mongo.Collection, employeeID string, numbers []string, start, end time.Time) ([]EveryDayReport, error) {
