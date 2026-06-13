@@ -78,8 +78,9 @@ type StaffDailyReport struct {
 }
 
 type EveryDayReport struct {
-	Date      string `bson:"_id" json:"date"`
-	TotalTime int    `bson:"totalTime" json:"totalTime"`
+	Date       string `bson:"_id" json:"date"`
+	TotalTime  int    `bson:"totalTime" json:"totalTime"`
+	TotalCount int    `bson:"totalCount" json:"totalCount"`
 }
 
 type ReportBlock struct {
@@ -681,9 +682,12 @@ func getOfficePhoneCallTimeByDate(
 						"$toInt": "$duration",
 					},
 				},
+				"totalCount": bson.M{
+					"$sum": 1,
+				},
 			},
 		}},
-		{{"$sort", bson.M{"_id": 1}}},
+		// {{"$sort", bson.M{"_id": 1}}},
 	}
 
 	cursor, err := callLogsCollection.Aggregate(ctx, pipeline)
@@ -734,6 +738,9 @@ func getDailyCallReport(callLogsCollection *mongo.Collection, employeeID string,
 					"$toInt": "$duration",
 				},
 			},
+			"totalCount": bson.M{
+				"$sum": 1,
+			},
 		},
 	}}
 
@@ -754,19 +761,33 @@ func getDailyCallReport(callLogsCollection *mongo.Collection, employeeID string,
 	}
 
 	// Convert aggregation results into a map (for quick lookup)
-	resultMap := make(map[string]int)
+	// resultMap := make(map[string]int)
+
+	type DailyData struct {
+		TotalTime  int
+		TotalCount int
+	}
+
+	resultMap := make(map[string]DailyData)
 	for _, r := range aggResults {
-		resultMap[r.Date] = r.TotalTime
+		// resultMap[r.Date] = r.TotalTime
+		resultMap[r.Date] = DailyData{
+			TotalTime:  r.TotalTime,
+			TotalCount: r.TotalCount,
+		}
 	}
 
 	// Fill missing days with totalTime = 0
 	var finalResults []EveryDayReport
 	for d := start; !d.After(end); d = d.Add(24 * time.Hour) {
 		dateStr := d.Format("02-01-2006") // same format as $dateToString
-		totalTime := resultMap[dateStr]
+		// totalTime := resultMap[dateStr]
+		data := resultMap[dateStr]
 		finalResults = append(finalResults, EveryDayReport{
-			Date:      dateStr,
-			TotalTime: totalTime,
+			Date: dateStr,
+			// TotalTime: totalTime,
+			TotalTime:  data.TotalTime,
+			TotalCount: data.TotalCount,
 		})
 	}
 
@@ -797,6 +818,9 @@ func getDailyAvyuktaCallSummary(collection *mongo.Collection, fullName string, s
 	groupStage := bson.D{{Key: "$group", Value: bson.M{
 		"_id":       "$dateStr",
 		"totalTime": bson.M{"$sum": "$lenth_in_sec"},
+		"totalCount": bson.M{
+			"$sum": 1,
+		},
 	}}}
 
 	// Step 4: Sort by date ascending
@@ -810,38 +834,41 @@ func getDailyAvyuktaCallSummary(collection *mongo.Collection, fullName string, s
 	}
 	defer cursor.Close(ctx)
 
-	// var results []EveryDayReport
-	// if err := cursor.All(ctx, &results); err != nil {
-	// 	return nil, err
-	// }
-
-	// Rename _id to date for clean output
-	// for i := range results {
-	// 	results[i]["date"] = results[i]["_id"]
-	// 	delete(results[i], "_id")
-	// }
-
-	// return results, nil
-
 	var aggResults []EveryDayReport
 	if err := cursor.All(ctx, &aggResults); err != nil {
 		return nil, err
 	}
 
 	// Convert aggregation results into a map for quick lookup
-	resultMap := make(map[string]int)
+	// resultMap := make(map[string]int)
+	// for _, r := range aggResults {
+	// 	resultMap[r.Date] = r.TotalTime
+	// }
+
+	type DailyData struct {
+		TotalTime  int
+		TotalCount int
+	}
+
+	resultMap := make(map[string]DailyData)
+
 	for _, r := range aggResults {
-		resultMap[r.Date] = r.TotalTime
+		resultMap[r.Date] = DailyData{
+			TotalTime:  r.TotalTime,
+			TotalCount: r.TotalCount,
+		}
 	}
 
 	// Generate all dates between start and end
 	var fullResults []EveryDayReport
 	for d := start; !d.After(end); d = d.Add(24 * time.Hour) {
 		dateStr := d.Format("02-01-2006") // same format used in $dateToString
-		totalTime := resultMap[dateStr]
+		// totalTime := resultMap[dateStr]
+		data := resultMap[dateStr]
 		fullResults = append(fullResults, EveryDayReport{
-			Date:      dateStr,
-			TotalTime: totalTime,
+			Date:       dateStr,
+			TotalTime:  data.TotalTime,
+			TotalCount: data.TotalCount,
 		})
 	}
 
