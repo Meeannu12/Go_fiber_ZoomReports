@@ -667,16 +667,44 @@ func getOfficePhoneCallTimeByDate(
 		},
 	}
 
+	// pipeline := mongo.Pipeline{
+	// 	{{"$match", filter}},
+	// 	{{
+	// 		"$group", bson.M{
+	// 			"_id": bson.M{
+	// 				"$dateToString": bson.M{
+	// 					"format": "%d-%m-%Y",
+	// 					"date":   "$timestamp",
+	// 				},
+	// 			},
+	// 			"totalTime": bson.M{
+	// 				"$sum": bson.M{
+	// 					"$toInt": "$duration",
+	// 				},
+	// 			},
+	// 			"totalCount": bson.M{
+	// 				"$sum": 1,
+	// 			},
+	// 		},
+	// 	}},
+	// 	// {{"$sort", bson.M{"_id": 1}}},
+	// }
+
 	pipeline := mongo.Pipeline{
 		{{"$match", filter}},
 		{{
-			"$group", bson.M{
-				"_id": bson.M{
+			"$addFields", bson.M{
+				"dateStr": bson.M{
 					"$dateToString": bson.M{
 						"format": "%d-%m-%Y",
 						"date":   "$timestamp",
 					},
 				},
+			},
+		}},
+		{{
+			"$group", bson.M{
+				"_id": "$dateStr",
 				"totalTime": bson.M{
 					"$sum": bson.M{
 						"$toInt": "$duration",
@@ -687,9 +715,8 @@ func getOfficePhoneCallTimeByDate(
 				},
 			},
 		}},
-		// {{"$sort", bson.M{"_id": 1}}},
+		{{"$sort", bson.M{"_id": 1}}},
 	}
-
 	cursor, err := callLogsCollection.Aggregate(ctx, pipeline)
 	if err != nil {
 		fmt.Println("Error fetching report:", err)
@@ -697,14 +724,52 @@ func getOfficePhoneCallTimeByDate(
 	}
 	defer cursor.Close(ctx)
 
-	var reports []EveryDayReport
+	// var reports []EveryDayReport
 
-	if err := cursor.All(ctx, &reports); err != nil {
+	// if err := cursor.All(ctx, &reports); err != nil {
+	// 	fmt.Println("Error decoding report:", err)
+	// 	return []EveryDayReport{}
+	// }
+
+	// return reports
+
+	var aggResults []EveryDayReport
+
+	if err := cursor.All(ctx, &aggResults); err != nil {
 		fmt.Println("Error decoding report:", err)
 		return []EveryDayReport{}
 	}
 
-	return reports
+	type DailyData struct {
+		TotalTime  int
+		TotalCount int
+	}
+
+	resultMap := make(map[string]DailyData)
+
+	for _, r := range aggResults {
+		resultMap[r.Date] = DailyData{
+			TotalTime:  r.TotalTime,
+			TotalCount: r.TotalCount,
+		}
+	}
+
+	var finalResults []EveryDayReport
+
+	for d := start; !d.After(end); d = d.Add(24 * time.Hour) {
+
+		dateStr := d.Format("02-01-2006")
+
+		data := resultMap[dateStr]
+
+		finalResults = append(finalResults, EveryDayReport{
+			Date:       dateStr,
+			TotalTime:  data.TotalTime,
+			TotalCount: data.TotalCount,
+		})
+	}
+
+	return finalResults
 }
 
 func getDailyCallReport(callLogsCollection *mongo.Collection, employeeID string, numbers []string, start, end time.Time) ([]EveryDayReport, error) {
