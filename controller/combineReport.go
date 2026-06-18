@@ -78,9 +78,10 @@ type StaffDailyReport struct {
 }
 
 type EveryDayReport struct {
-	Date       string `bson:"_id" json:"date"`
-	TotalTime  int    `bson:"totalTime" json:"totalTime"`
-	TotalCount int    `bson:"totalCount" json:"totalCount"`
+	Date         string `bson:"_id" json:"date"`
+	TotalTime    int    `bson:"totalTime" json:"totalTime"`
+	TotalCount   int    `bson:"totalCount" json:"totalCount"`
+	ConnectCount int    `bson:"connectCount" json:"connectCount"`
 }
 
 type ReportBlock struct {
@@ -806,6 +807,20 @@ func getDailyCallReport(callLogsCollection *mongo.Collection, employeeID string,
 			"totalCount": bson.M{
 				"$sum": 1,
 			},
+			"connectCount": bson.M{
+				"$sum": bson.M{
+					"$cond": []interface{}{
+						bson.M{
+							"$gt": []interface{}{
+								bson.M{"$toInt": "$duration"},
+								0,
+							},
+						},
+						1,
+						0,
+					},
+				},
+			},
 		},
 	}}
 
@@ -829,16 +844,18 @@ func getDailyCallReport(callLogsCollection *mongo.Collection, employeeID string,
 	// resultMap := make(map[string]int)
 
 	type DailyData struct {
-		TotalTime  int
-		TotalCount int
+		TotalTime    int
+		TotalCount   int
+		ConnectCount int
 	}
 
 	resultMap := make(map[string]DailyData)
 	for _, r := range aggResults {
 		// resultMap[r.Date] = r.TotalTime
 		resultMap[r.Date] = DailyData{
-			TotalTime:  r.TotalTime,
-			TotalCount: r.TotalCount,
+			TotalTime:    r.TotalTime,
+			TotalCount:   r.TotalCount,
+			ConnectCount: r.ConnectCount,
 		}
 	}
 
@@ -851,8 +868,9 @@ func getDailyCallReport(callLogsCollection *mongo.Collection, employeeID string,
 		finalResults = append(finalResults, EveryDayReport{
 			Date: dateStr,
 			// TotalTime: totalTime,
-			TotalTime:  data.TotalTime,
-			TotalCount: data.TotalCount,
+			TotalTime:    data.TotalTime,
+			TotalCount:   data.TotalCount,
+			ConnectCount: data.ConnectCount,
 		})
 	}
 
