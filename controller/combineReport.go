@@ -714,6 +714,20 @@ func getOfficePhoneCallTimeByDate(
 				"totalCount": bson.M{
 					"$sum": 1,
 				},
+				"connectCount": bson.M{
+					"$sum": bson.M{
+						"$cond": []interface{}{
+							bson.M{
+								"$gt": []interface{}{
+									bson.M{"$toInt": "$duration"},
+									0,
+								},
+							},
+							1,
+							0,
+						},
+					},
+				},
 			},
 		}},
 		{{"$sort", bson.M{"_id": 1}}},
@@ -742,16 +756,18 @@ func getOfficePhoneCallTimeByDate(
 	}
 
 	type DailyData struct {
-		TotalTime  int
-		TotalCount int
+		TotalTime    int
+		TotalCount   int
+		ConnectCount int
 	}
 
 	resultMap := make(map[string]DailyData)
 
 	for _, r := range aggResults {
 		resultMap[r.Date] = DailyData{
-			TotalTime:  r.TotalTime,
-			TotalCount: r.TotalCount,
+			TotalTime:    r.TotalTime,
+			TotalCount:   r.TotalCount,
+			ConnectCount: r.ConnectCount,
 		}
 	}
 
@@ -764,9 +780,10 @@ func getOfficePhoneCallTimeByDate(
 		data := resultMap[dateStr]
 
 		finalResults = append(finalResults, EveryDayReport{
-			Date:       dateStr,
-			TotalTime:  data.TotalTime,
-			TotalCount: data.TotalCount,
+			Date:         dateStr,
+			TotalTime:    data.TotalTime,
+			TotalCount:   data.TotalCount,
+			ConnectCount: data.ConnectCount,
 		})
 	}
 
@@ -904,6 +921,17 @@ func getDailyAvyuktaCallSummary(collection *mongo.Collection, fullName string, s
 		"totalCount": bson.M{
 			"$sum": 1,
 		},
+		"connectCount": bson.M{
+			"$sum": bson.M{
+				"$cond": []interface{}{
+					bson.M{
+						"$gt": []interface{}{"$lenth_in_sec", 0},
+					},
+					1,
+					0,
+				},
+			},
+		},
 	}}}
 
 	// Step 4: Sort by date ascending
@@ -929,16 +957,18 @@ func getDailyAvyuktaCallSummary(collection *mongo.Collection, fullName string, s
 	// }
 
 	type DailyData struct {
-		TotalTime  int
-		TotalCount int
+		TotalTime    int
+		TotalCount   int
+		ConnectCount int
 	}
 
 	resultMap := make(map[string]DailyData)
 
 	for _, r := range aggResults {
 		resultMap[r.Date] = DailyData{
-			TotalTime:  r.TotalTime,
-			TotalCount: r.TotalCount,
+			TotalTime:    r.TotalTime,
+			TotalCount:   r.TotalCount,
+			ConnectCount: r.ConnectCount,
 		}
 	}
 
@@ -949,9 +979,10 @@ func getDailyAvyuktaCallSummary(collection *mongo.Collection, fullName string, s
 		// totalTime := resultMap[dateStr]
 		data := resultMap[dateStr]
 		fullResults = append(fullResults, EveryDayReport{
-			Date:       dateStr,
-			TotalTime:  data.TotalTime,
-			TotalCount: data.TotalCount,
+			Date:         dateStr,
+			TotalTime:    data.TotalTime,
+			TotalCount:   data.TotalCount,
+			ConnectCount: data.ConnectCount,
 		})
 	}
 
